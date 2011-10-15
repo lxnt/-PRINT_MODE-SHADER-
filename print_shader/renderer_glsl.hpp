@@ -3,15 +3,15 @@
 
 extern texdumpst texdumper;
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
-
+long do_dump_screen = 0;
 class renderer_glsl : public renderer {
 	GLuint tex_id[2];
 	GLuint vbo_id[7];
 	GLint  attr_loc[7];
 	GLint  unif_loc[6];
 	GLuint shader;
-	GLint txsz_w, txsz_h;
-	bool reset_grid, do_dump, do_swap;
+	GLint txsz_w, txsz_h, texture_filter;
+	bool reset_grid, do_swap;
 	GLfloat *grid;
 	SDL_Surface *surface;
 
@@ -152,15 +152,16 @@ class renderer_glsl : public renderer {
 		printGLError();
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		printGLError();
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, texture_filter);
 		printGLError();
-		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, texture_filter);
 		printGLError();
 		glUniform2f(unif_loc[TXSZ], texdumper.w_t, texdumper.h_t);
 		printGLError();
 		fprintf(stderr, "accepted font texture (name=%d): %dx%dpx oa\n",
 				tex_id[FONT], cats->w, cats->h);
-		texdumper.dump();
+		if (do_dump_screen > 0)
+			texdumper.dump();
 	}
 	bool shader_status(GLuint fsvs, GLenum pname) {
 		GLint param;
@@ -477,10 +478,9 @@ public:
 		printGLError();
 		if (do_swap)
 			SDL_GL_SwapBuffers();
-		if ((f_counter++ % 5122) and false)
-			std::cerr<<"5122nd frame rendered.\n";
-		if (do_dump)
-			dump_screen("sd-fail");
+		f_counter ++;
+		if ((do_dump_screen > 0) && (f_counter % do_dump_screen == 0))
+			dump_screen("screendump");
 
 	}
 	virtual void set_fullscreen() 			{ zoom(zoom_fullscreen); }
@@ -548,8 +548,7 @@ public:
 	}
 	renderer_glsl() {
 		zoom_steps = forced_steps = f_counter = 0;
-		do_dump = false;
-
+		texture_filter = init.window.flag.has_flag(INIT_WINDOW_FLAG_TEXTURE_LINEAR) ? GL_LINEAR : GL_NEAREST;
 		SDL_EnableKeyRepeat(0, 0); // Disable key repeat
 		SDL_WM_SetCaption(GAME_TITLE_STRING, NULL); // Set window title/icon.
 		SDL_Surface *icon = IMG_Load("data/art/icon.png");

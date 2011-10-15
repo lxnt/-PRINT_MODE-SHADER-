@@ -64,7 +64,6 @@ class init_displayst
 
   int desired_fullscreen_width, desired_fullscreen_height;
   int desired_windowed_width, desired_windowed_height;
-
   
   char partial_print_count;
   

@@ -36,6 +36,7 @@ using std::string;
 
 extern enablerst enabler;
 extern graphicst gps;
+extern long do_dump_screen;
 
 init_displayst::init_displayst()
 {
@@ -106,7 +107,8 @@ void initst::begin()
 					{
 					display.desired_fullscreen_height=convert_string_to_long(token2);
 					}
-
+				if (token=="DUMP_SCREEN")
+					do_dump_screen = convert_string_to_long(token2);
 				if(token=="PRINT_MODE")
 					{
 					if(token2=="PARTIAL")
