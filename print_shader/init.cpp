@@ -37,6 +37,7 @@ using std::string;
 extern enablerst enabler;
 extern graphicst gps;
 extern long do_dump_screen;
+extern char *fs_path, *vs_path;
 
 init_displayst::init_displayst()
 {
@@ -109,6 +110,10 @@ void initst::begin()
 					}
 				if (token=="DUMP_SCREEN")
 					do_dump_screen = convert_string_to_long(token2);
+				if (token=="VERTEX_SHADER")
+					vs_path = strdup(token2.c_str());
+				if (token=="FRAGMENT_SHADER")
+					fs_path = strdup(token2.c_str());
 				if(token=="PRINT_MODE")
 					{
 					if(token2=="PARTIAL")

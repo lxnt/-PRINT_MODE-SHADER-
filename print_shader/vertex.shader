@@ -18,7 +18,8 @@ const float ANSI_CC = 16.0; // ansi color count
 uniform float pointsize;
 uniform sampler1D ansi;
 uniform vec2 txsz;              // { w_tiles, h_tiles }
-uniform vec2 viewpoint;
+uniform vec2 viewpoint;			
+uniform vec2 par; 				// point sprite multipliers
    
 attribute vec4 screen;          // { ch, fg, bg, bold } 
 attribute float texpos;         //  tile_tex_idx 
@@ -83,7 +84,7 @@ void main() { // precomputes whatever there can be precomputed
     texoffset.x = fract( scr_idx / txsz.x );          // this magically does not depend
     texoffset.y = floor( scr_idx / txsz.x ) / txsz.y; // on graphics' aspect ratio or size.             
     
-    vec2 posn = position*pointsize - viewpoint;
+    vec2 posn = par*position*pointsize - viewpoint;
      
     gl_Position = gl_ModelViewProjectionMatrix*vec4(posn.x, posn.y, 0, 1);
     gl_PointSize = pointsize;    

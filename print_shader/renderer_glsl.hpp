@@ -1,27 +1,26 @@
 // SHADER
+extern GLchar _binary____fragment_shader_end;
+extern GLchar _binary____fragment_shader_start;
+extern GLchar _binary____vertex_shader_end;
+extern GLchar _binary____vertex_shader_start;
 
 
 extern texdumpst texdumper;
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 long do_dump_screen = 0;
+char *vs_path = NULL;
+char *fs_path = NULL;
 class renderer_glsl : public renderer {
-	GLuint tex_id[2];
-	GLuint vbo_id[7];
-	GLint  attr_loc[7];
-	GLint  unif_loc[6];
-	GLuint shader;
-	GLint txsz_w, txsz_h, texture_filter;
-	bool reset_grid, do_swap;
-	GLfloat *grid;
-	SDL_Surface *surface;
-
 	enum uniforms {
 		FONT,
 		ANSI,
 		TXSZ,
 		FINAL_ALPHA,
 		POINTSIZE,
-		VIEWPOINT
+		VIEWPOINT,
+		PAR,
+
+		LASTUNIF
 	};
 
 	enum attrarrays {
@@ -31,10 +30,22 @@ class renderer_glsl : public renderer {
 		GRAYSCALE,
 		CF,
 		CBR,
-		POSITION
+		POSITION,
+
+		LASTATTR
 	};
 
+	GLuint tex_id[2];
+	GLuint vbo_id[LASTATTR];
+	GLint  attr_loc[LASTATTR];
+	GLint  unif_loc[LASTUNIF];
+	GLuint shader;
+	GLint txsz_w, txsz_h, texture_filter;
+	bool do_swap;
+	GLfloat *grid;
+	SDL_Surface *surface;
 	uint32_t *screen_underlay;
+	int f_counter;
 
 	void screen_underlay_reshape() {
 		if (screen_underlay)
@@ -42,13 +53,11 @@ class renderer_glsl : public renderer {
 		screen_underlay = new uint32_t[gps.dimx*gps.dimy];
 		memmove(screen_underlay, gps.screen, gps.dimx*gps.dimy*4);
 	}
-
 	void screen_underlay_update() {
 		for (int i=0; i<gps.dimx*gps.dimy; i++)
 			if (!gps.screentexpos[i])
 				screen_underlay[i] = *((Uint32 *)gps.screen + i);
 	}
-
 	bool set_mode(int w, int h) {
 		Uint32 flags = SDL_OPENGL | SDL_HWSURFACE;
 
@@ -84,18 +93,12 @@ class renderer_glsl : public renderer {
 
 		if ( do_swap and singlebuf ) {
 			if (enabler.is_fullscreen())
-				std::cerr<<"set_mode(): requested single-buffering, failed, don't care because of fullscreen.\n";
+				std::cerr<<"set_mode(): requested single-buffering, failed, not caring because of fullscreen.\n";
 			else
 				report_error("OpenGL","Requested single-buffering not available");
 		}
 		opengl_setmode();
 		return true;
-	}
-
-	void buffer_binding() {
-		GLint param;
-		glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &param);
-		std::cerr << "buffer_binding(): currently bound buffer: " << param << "\n";
 	}
 	void makegrid() {
 		std::cerr << "makegrid(): "<<gps.dimx<<"x"<<gps.dimy<<"\n";
@@ -221,21 +224,37 @@ class renderer_glsl : public renderer {
 		return param;
 	}
 	void shader_setup() {
-		std::ifstream f("data/vertex.shader", ios::binary);
-		GLint v_len = f.seekg(0, std::ios::end).tellg();
-		f.seekg(0, ios::beg);
-		GLchar *v_src = new GLchar[v_len + 1];
-		f.read(v_src, v_len);
-		f.close();
-		v_src[v_len] = 0;
-		f.open("data/fragment.shader", ios::binary);
-		GLint f_len = f.seekg(0, ios::end).tellg();
-		f.seekg(0, ios::beg);
-		GLchar *f_src = new GLchar[f_len + 1];
-		f.read(f_src, f_len);
-		f.close();
-		f_src[f_len] = 0;
+		GLint v_len, f_len;
+		GLchar *v_src, *f_src;
+		if (vs_path) {
+			fprintf(stderr, "Using external vertex shader code: '%s'.\n", vs_path);
+			std::ifstream f(vs_path, ios::binary);
+			v_len = f.seekg(0, std::ios::end).tellg();
+			f.seekg(0, ios::beg);
+			v_src = new GLchar[v_len + 1];
+			f.read(v_src, v_len);
+			f.close();
+			v_src[v_len] = 0;
 
+		} else {
+			fprintf(stderr, "Using embedded vertex shader code.\n");
+			v_len = &_binary____vertex_shader_end - &_binary____vertex_shader_start;
+			v_src = &_binary____vertex_shader_start;
+		}
+		if (fs_path) {
+			fprintf(stderr, "Using external fragment shader code: '%s'.\n", fs_path);
+			std::ifstream f(fs_path, ios::binary);
+			f_len = f.seekg(0, ios::end).tellg();
+			f.seekg(0, ios::beg);
+			f_src = new GLchar[f_len + 1];
+			f.read(f_src, f_len);
+			f.close();
+			f_src[f_len] = 0;
+		} else {
+			fprintf(stderr, "Using embedded fragment shader code.\n");
+			f_len = &_binary____fragment_shader_end - &_binary____fragment_shader_start;
+			f_src = &_binary____fragment_shader_start;
+		}
 		const GLchar * v_srcp[1] = { v_src };
 		const GLchar * f_srcp[1] = { f_src };
 
@@ -277,6 +296,7 @@ class renderer_glsl : public renderer {
 		unif_loc[FINAL_ALPHA] = glGetUniformLocation(shader, "final_alpha");
 		unif_loc[POINTSIZE] = glGetUniformLocation(shader, "pointsize");
 		unif_loc[VIEWPOINT] = glGetUniformLocation(shader, "viewpoint");
+		unif_loc[PAR] = glGetUniformLocation(shader, "par");
 		printGLError();
 
 		attr_loc[SCREEN] = glGetAttribLocation(shader, "screen");
@@ -289,22 +309,27 @@ class renderer_glsl : public renderer {
 		printGLError();
 
 		glEnableVertexAttribArray(attr_loc[SCREEN]);
+		printGLError();
 		glEnableVertexAttribArray(attr_loc[TEXPOS]);
+		printGLError();
 		glEnableVertexAttribArray(attr_loc[ADDCOLOR]);
+		printGLError();
 		glEnableVertexAttribArray(attr_loc[GRAYSCALE]);
+		printGLError();
 		glEnableVertexAttribArray(attr_loc[CF]);
+		printGLError();
 		glEnableVertexAttribArray(attr_loc[CBR]);
+		printGLError();
+		fprintf(stderr, "%d", attr_loc[POSITION]);
 		glEnableVertexAttribArray(attr_loc[POSITION]);
 		printGLError();
 
 		glUniform1i(unif_loc[ANSI], 0); 		// GL_TEXTURE0 : ansi color strip
 		glUniform1i(unif_loc[FONT], 1); 		// GL_TEXTURE1 : font
 		glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
-		glUniform1f(unif_loc[POINTSIZE], 16);
 		printGLError();
-		/* note: TXSZ and POINTSIZE are not bound yet. */
+		/* note: TXSZ and POINTSIZE/PAR are not bound yet. */
 	}
-
 	void opengl_setmode() {
 		glMatrixMode( GL_PROJECTION);
 		glLoadIdentity();
@@ -315,7 +340,6 @@ class renderer_glsl : public renderer {
 		glClearColor(0.3, 0.0, 0.0, 1.0);
 		glClear( GL_COLOR_BUFFER_BIT);
 	}
-
 	void opengl_init() {
 		glewInit(); // crashes on windows? Muahahaha
 		glGenTextures(2, tex_id);
@@ -332,7 +356,6 @@ class renderer_glsl : public renderer {
 
 		shader_setup();
 		makeansitex();
-		reset_grid = true;
 	}
 	void opengl_fini() {
 		std::cerr<<"Oh noes! gl-fini!\n";
@@ -375,32 +398,40 @@ class renderer_glsl : public renderer {
 		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_cbr, GL_DYNAMIC_DRAW);
 		glVertexAttribPointer(attr_loc[CBR], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
 		printGLError();
-
-		if (reset_grid) {
-			makegrid();
-			reset_grid = false;
-			std::cerr<<"update_vbos(): grid reset.\n";
-		}
 	}
-	void reshape_gl() {
-		std::cerr<<"reshape_gl(): to "<<surface->w<<"x"<<surface->h<<".\n";
-		reset_grid = true;
+	void reshape(pair<int, int> size) {// Parameters: grid units
+		int w = MIN(MAX(size.first, MIN_GRID_X), MAX_GRID_X);
+		int h = MIN(MAX(size.second, MIN_GRID_Y), MAX_GRID_Y);
+		cerr<<"reshape(): to " << w << "x" << h << "\n";
+
+		gps_allocate(w, h);
+		screen_underlay_reshape();
+		makegrid();
+
 		glMatrixMode( GL_PROJECTION);
 		glLoadIdentity();
 		gluOrtho2D(0, surface->w, 0, surface->h);
 		glMatrixMode( GL_MODELVIEW);
 		glLoadIdentity();
-		GLfloat psize = MIN(surface->w/gps.dimx, surface->h/gps.dimy);
-		glUniform1f(unif_loc[POINTSIZE], psize);
-	}
-	// Parameters: grid units
-	void reshape(pair<int, int> size) {
-		int w = MIN(MAX(size.first, MIN_GRID_X), MAX_GRID_X);
-		int h = MIN(MAX(size.second, MIN_GRID_Y), MAX_GRID_Y);
-		cerr<<"reshape(): to " << w << "x" << h << "\n";
-		gps_allocate(w, h);
-		screen_underlay_reshape();
-		reshape_gl();
+
+		GLfloat Pw = surface->w/gps.dimx;
+		GLfloat Ph = surface->h/gps.dimy;
+		GLfloat Ps, Parx, Pary;
+		if (Pw > Ph) {
+			Ps = Pw;
+			Parx = 1.0;
+			Pary = Ph/Pw;
+		} else {
+			Ps = Ph;
+			Parx = Pw/Ph;
+			Pary = 1.0;
+		}
+
+		fprintf(stderr, "reshape_gl(): to %dx%d grid %dx%d Ps %0.2f %0.2f %0.2f\n",
+				surface->w, surface->h, gps.dimx, gps.dimy, Ps, Parx, Pary);
+
+		glUniform1f(unif_loc[POINTSIZE], Ps);
+		glUniform2f(unif_loc[PAR], Parx, Pary);
 	}
 	void dump_screen(const char *fname) {
 		std::ofstream f;
@@ -416,8 +447,9 @@ class renderer_glsl : public renderer {
 		f.write((char *)(screentexpos_grayscale), dimx*dimy);
 		f.write((char *)(screentexpos_cf), dimx*dimy);
 		f.write((char *)(screentexpos_cbr), dimx*dimy);
+		f.write((char *)(screentexpos_cbr), dimx*dimy);
+		f.write((char *)(screen_underlay), 4*dimx*dimy);
 		f.close();
-		std::cerr<<"Dumped "<<(12*dimx*dimx)<<" bytes, size "<<dimx<<"x"<<dimy<<" tiles\n";
 	}
 int off_x, off_y, size_x, size_y;
 int zoom_steps, forced_steps;
@@ -458,9 +490,6 @@ int natural_w, natural_h; // How large our view would be if it wasn't zoomed
 		return make_pair(w,h);
 	}
 
-	int f_counter;
-
-
 public:
 	virtual void display() 					{ if (0) std::cerr<<"display(): do not need.\n"; }
 	virtual void update_tile(int x, int y)  { if (1) std::cerr<<"update_tile(): do not need.\n"; }
@@ -481,7 +510,6 @@ public:
 		f_counter ++;
 		if ((do_dump_screen > 0) && (f_counter % do_dump_screen == 0))
 			dump_screen("screendump");
-
 	}
 	virtual void set_fullscreen() 			{ zoom(zoom_fullscreen); }
 	//rtual void swap_arrays() 				{ if (0) std::cerr<<"swap_arrays(): do not need.\n"; }
@@ -506,7 +534,7 @@ public:
 					init.display.desired_windowed_width = surface->w;
 					init.display.desired_windowed_height = surface->h;
 					resize(init.display.desired_fullscreen_width,
-					init.display.desired_fullscreen_height);
+							init.display.desired_fullscreen_height);
 				} else {
 					resize(init.display.desired_windowed_width, init.display.desired_windowed_height);
 				}
@@ -519,13 +547,14 @@ public:
 		else
 			reshape(after);
 	}
-  // Parameters: grid size
 	virtual void grid_resize(int w, int h) {
+		// dis gets called from enablerst::override_grid_size() only
 		std::cerr<<"renderer_glsl::grid_resize(): "<<w<<"x"<<h<<" (t).\n";
 		reshape(make_pair(w, h));
 	}
 	virtual void resize(int w, int h) {
-		std::cerr<<"renderer_glsl::resize(): "<<w<<"x"<<h<<" (px).\n";
+		// dis gets called on SDL_VIDEORESIZE event
+		std::cerr<<"renderer_glsl::resize(): "<<w<<"x"<<h<<" px.\n";
 		// (Re)calculate grid-size
 		int dispx = enabler.is_fullscreen() ? init.font.large_font_dispx
 				: init.font.small_font_dispx;
@@ -585,11 +614,8 @@ public:
 			exit(EXIT_FAILURE);
 		}
 		screen_underlay_reshape();
-		// Initialize opengl
 		opengl_init();
-
 	}
-
 	virtual bool get_mouse_coords(int &x, int &y) {
 		int mouse_x, mouse_y;
 		SDL_GetMouseState(&mouse_x, &mouse_y);
@@ -606,5 +632,4 @@ public:
 		bool very_true = true;
 		return true && very_true;
 	}
-
 };
