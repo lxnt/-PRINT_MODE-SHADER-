@@ -73,15 +73,16 @@ class FrameLoader(object):
                     self.framecount = idx
                     raise FindexError
                     
-                frame.w,frame.h = struct.unpack("ii", fheader)
-                tilecount = frame.w * frame.h
+                frame.wt,frame.ht,frame.wpx,frame.hpx = struct.unpack("iiii", fheader)
+                tilecount = frame.wt * frame.ht
                 frame.update({
                     "screen":           ( np.fromfile(self.fd, np.uint8,  tilecount * 4), 4, GL_UNSIGNED_BYTE, 0),
                     "texpos":           ( np.fromfile(self.fd, np.uint32, tilecount), 1, GL_UNSIGNED_INT, 0),
                     "addcolor":         ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0),
                     "grayscale":        ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0),
                     "cf":               ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0),
-                    "cbr":              ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0)
+                    "cbr":              ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0),
+                    "screen_underlay":  ( np.fromfile(self.fd, np.uint32,  tilecount), 1, GL_UNSIGNED_INT, 0),
                 })
                 self.frames[idx] = frame
                 print "frame {0}, tile(0,0) = {1} fg={2} bg={3} bold={4}".format(idx, 
@@ -109,8 +110,12 @@ class rednener(object):
         
         if fcell_h > fcell_w:
             self.psize = fcell_h
+            self.parx = (1.0*fcell_h)/fcell_w
+            self.pary = 1.0
         else:
             self.psize = fcell_w
+            self.parx = 1.0
+            self.pary = (1.0*fcell_w)/fcell_h
         
         self.loader = loader
         self.initializeDisplay()
@@ -147,7 +152,7 @@ class rednener(object):
         self.shader = compileProgram(VERTEX_SHADER, FRAGMENT_SHADER)
         glUseProgram(self.shader)
         
-        uniforms = "font ansi txsz final_alpha pointsize viewpoint".split()
+        uniforms = "font ansi txsz final_alpha pointsize viewpoint par".split()
         attributes = "screen texpos addcolor grayscale cf cbr position".split()
 
         self.uloc = {}
@@ -260,12 +265,25 @@ class rednener(object):
         self.reset_videomode()
         glUniform1f(self.uloc["pointsize"], psize)
     
-    def reshape(self, wpx, hpx): 
-        """ """
+    def reshape(self, frame): 
+        """ now, we got what? wpx, hpx, w_t, h_t from da frame. That is all.
         
-        self.w_px = wpx
-        self.h_px = hpx
-        self.zoom(0)
+        """
+        Pw = (1.0 * frame.wpx)/frame.w_t
+        Ph = (1.0 * frame.hpx)/frame.h_t
+        if Pw > Ph:
+            Psize = Pw
+            Parx = 1.0
+            Pary = Ph/Pw
+        else:            
+            Psize = Ph
+            Parx = Pw/Ph
+            Pary = 1.0
+            
+        self.w_px = frame.wpx
+        self.h_px = frame.hpx
+        
+        self.makegrid(frame.w_t, frame.h_t)
         
     def makegrid(self, w, h):
         rv = []

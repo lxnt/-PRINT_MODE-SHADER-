@@ -760,11 +760,11 @@ namespace std {
 struct texdumpst {
 	SDL_Surface *cats;
 	int count, w_t, h_t, limit;
-	Uint16 w, h, csize;
+	Uint16 w, h, t_w, t_h;
 	int dumpcount;
 	bool finished;
 	texdumpst();
-	bool init(int rawcount, Uint16 maxsize);
+	bool init(int rawcount, Uint16, Uint16);
 	bool add(SDL_Surface *tex, long pos);
 	void dump();
 	SDL_Surface *get();

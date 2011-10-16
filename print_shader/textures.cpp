@@ -40,13 +40,14 @@ texdumpst::texdumpst() {
 	cats = NULL;
 }
 
-bool texdumpst::init(int rawcount, Uint16 maxsize) {
-	csize = maxsize;
+bool texdumpst::init(int rawcount, Uint16 tile_w, Uint16 tile_h) {
+	t_w = tile_w;
+	t_h = tile_h;
 	count = 0;
 	w_t = sqrt(rawcount) + 1;
 	h_t = rawcount/w_t + 1;
-	h = csize*h_t;
-	w = csize*w_t;
+	h = t_h*h_t;
+	w = t_w*w_t;
 	limit = w_t*h_t;
 	if (cats)
 		SDL_FreeSurface(cats);
@@ -61,7 +62,9 @@ bool texdumpst::init(int rawcount, Uint16 maxsize) {
 		return false;
 	}
 	glDeleteTextures(1, &gl_test);
-	std::cerr<<"texdumpst::init(): allocating "<<w<<"x"<<h<<"texture, limit="<<limit<<".\n";
+	fprintf(stderr, "texdumpst::init(): allocating %dx%d limit=%d (%dx%d cells)\n",
+			w, h, limit, t_w, t_h);
+
 
 #if SDL_BYTEORDER == SDL_BIG_ENDIAN
 Uint32 rmask = 0xff000000;
@@ -89,15 +92,15 @@ bool texdumpst::add(SDL_Surface *tex, long pos) {
 		return false;
 	}
 	Uint16 rw = tex->w, rh = tex->h;
-	if (rw > csize)
-		rw = csize;
-	if (rh > csize)
-		rh = csize;
+	if (rw > t_w)
+		rw = t_w;
+	if (rh > t_h)
+		rh = t_h;
 
 	Sint16 x,y;
 	count++;
-	x = (pos % w_t) * csize;
-	y = (pos / w_t) * csize;
+	x = (pos % w_t) * t_w;
+	y = (pos / w_t) * t_h;
 	SDL_Rect dstrect = {x, y , 0, 0 };
 	SDL_Rect srcrect = { 0, 0, rw, rh };
 	SDL_SetAlpha(tex, 0, SDL_ALPHA_OPAQUE);
@@ -131,7 +134,7 @@ texdumpst texdumper;
 void textures::upload_textures() {
   if (init.display.flag.has_flag(INIT_DISPLAY_FLAG_SHADER)) {
 	  long pos = 0;
-	  texdumper.init(raws.size(), 16);
+	  texdumper.init(raws.size(), 16, 16);
 	  for (std::vector<SDL_Surface *>::iterator it = raws.begin(); it != raws.end(); ++it) {
 		  if (*it)
 			texdumper.add(*it, pos);
