@@ -770,6 +770,20 @@ struct texdumpst {
 	SDL_Surface *get();
 };
 
+struct glsl_configst {
+	long dump_screen;
+	std::string vs_path;
+	std::string fs_path;
+	bool snap_window;
+
+	glsl_configst() {
+		dump_screen = 0;
+		vs_path = "";
+		fs_path = "";
+		snap_window = 0;
+	}
+};
+
 // Being a texture catalog interface, with opengl, sdl and truetype capability
 class textures
 {

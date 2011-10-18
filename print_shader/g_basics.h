@@ -31,3 +31,44 @@ extern int glerrorcount;
 #endif
 
 #endif
+
+
+#define fputsGLError(stream) \
+	do { \
+		GLenum err = glGetError(); \
+		const char *errn; \
+		while (err != GL_NO_ERROR) { \
+			switch(err) { \
+				case GL_INVALID_ENUM: \
+					errn = "GL_INVALID_ENUM"; \
+					break; \
+				case GL_INVALID_VALUE: \
+					errn = "GL_INVALID_VALUE"; \
+					break; \
+				case GL_INVALID_OPERATION: \
+					errn = "GL_INVALID_OPERATION"; \
+					break; \
+				case GL_STACK_OVERFLOW: \
+					errn = "GL_STACK_OVERFLOW"; \
+					break; \
+				case GL_STACK_UNDERFLOW: \
+					errn = "GL_STACK_UNDERFLOW"; \
+					break; \
+				case GL_OUT_OF_MEMORY: \
+					errn = "GL_OUT_OF_MEMORY"; \
+					break; \
+				case GL_TABLE_TOO_LARGE: \
+					errn = "GL_TABLE_TOO_LARGE"; \
+					break; \
+				default: \
+					errn = NULL; \
+					fprintf(stream, "Unknown GL Error 0x%04x at %s:%d\n", err, __FILE__, __LINE__-1); \
+					break; \
+			} \
+			if (errn) \
+				fprintf(stream, "%s at %s:%d\n", errn, __FILE__, __LINE__-1); \
+			err = glGetError(); \
+		}\
+		fflush(stream);\
+		if(0) abort();\
+	} while(0)

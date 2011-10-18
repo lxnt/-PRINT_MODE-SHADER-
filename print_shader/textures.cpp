@@ -25,11 +25,11 @@ struct vsize_pos {
 bool testTextureSize(GLuint texnum, int w, int h) {
   GLint gpu_width;
   glBindTexture(GL_TEXTURE_2D, texnum);
-      printGLError();
+      fputsGLError(stderr);
   glTexImage2D(GL_PROXY_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-      printGLError();
+      fputsGLError(stderr);
   glGetTexLevelParameteriv(GL_PROXY_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &gpu_width);
-      printGLError();
+      fputsGLError(stderr);
 
   if (gpu_width == w) return true;
   return false;
@@ -51,17 +51,18 @@ bool texdumpst::init(int rawcount, Uint16 tile_w, Uint16 tile_h) {
 	limit = w_t*h_t;
 	if (cats)
 		SDL_FreeSurface(cats);
-	glEnable(GL_TEXTURE_2D);
-	printGLError();
-	GLuint gl_test;
-	glGenTextures(1, &gl_test);
-	  printGLError();
-	if (!testTextureSize(gl_test, w, h)) {
+	GLuint gl_test[1];
+	fputsGLError(stderr);
+	glGenTextures(1, gl_test);
+	fputsGLError(stderr);
+	if (!testTextureSize(gl_test[0], w, h)) {
 		std::cerr<<"texdumpst::init(): GPU does not support "<<w<<"x"<<h<<" textures.\n";
-		glDeleteTextures(1, &gl_test);
+		glDeleteTextures(1, gl_test);
+		fputsGLError(stderr);
 		return false;
 	}
-	glDeleteTextures(1, &gl_test);
+	glDeleteTextures(1, gl_test);
+	fputsGLError(stderr);
 	fprintf(stderr, "texdumpst::init(): allocating %dx%d limit=%d (%dx%d cells)\n",
 			w, h, limit, t_w, t_h);
 
@@ -115,7 +116,7 @@ void texdumpst::dump() {
 	if (!cats)
 		return;
 	char fname[4096];
-	sprintf(fname, "texdump%04d-p.png", dumpcount);
+	sprintf(fname, "texdump%04d.png", dumpcount);
 	IMG_SavePNG(fname, cats, 9);
 	SDL_FreeSurface(cats);
 	cats = NULL;
@@ -124,7 +125,7 @@ void texdumpst::dump() {
 }
 
 SDL_Surface *texdumpst::get() {
-	std::cerr<<"handed off cats with "<<count<<" tiles. ("<<w_t<<"x"<<h_t<<"\n";
+	std::cerr<<"handed off cats with "<<count<<" tiles. ("<<w_t<<"x"<<h_t<<").\n";
 	return cats;
 }
 
@@ -134,7 +135,7 @@ texdumpst texdumper;
 void textures::upload_textures() {
   if (init.display.flag.has_flag(INIT_DISPLAY_FLAG_SHADER)) {
 	  long pos = 0;
-	  texdumper.init(raws.size(), 16, 16);
+	  texdumper.init(raws.size(), 16, 16);  //FIXME: hardcoded tile size
 	  for (std::vector<SDL_Surface *>::iterator it = raws.begin(); it != raws.end(); ++it) {
 		  if (*it)
 			texdumper.add(*it, pos);
@@ -148,9 +149,9 @@ void textures::upload_textures() {
   if (!enabler.uses_opengl()) return; // No uploading
 
   glEnable(GL_TEXTURE_2D);
-  printGLError();
+  fputsGLError(stderr);
   glGenTextures(1, &gl_catalog);
-  printGLError();
+  fputsGLError(stderr);
 
   // First, sort the textures by vertical size. We'll want to place the large
   // ones first.
@@ -252,32 +253,32 @@ void textures::upload_textures() {
 
   // Guess it will. Well, then, actually upload it
   glBindTexture(GL_TEXTURE_2D, gl_catalog);
-      printGLError();
+      fputsGLError(stderr);
   char *zeroes = new char[catalog_width*catalog_height*4];
   memset(zeroes,0,sizeof(char)*catalog_width*catalog_height*4);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, catalog_width, catalog_height, 0, GL_RGBA,
 	       GL_UNSIGNED_BYTE, zeroes);
   delete[] zeroes;
-      printGLError();
+      fputsGLError(stderr);
   glBindTexture(GL_TEXTURE_2D, gl_catalog);
-      printGLError();
+      fputsGLError(stderr);
   GLint param = (init.window.flag.has_flag(INIT_WINDOW_FLAG_TEXTURE_LINEAR) ?
     GL_LINEAR : GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,param);
-       printGLError();
+       fputsGLError(stderr);
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,param);
 
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-      printGLError();
+      fputsGLError(stderr);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-      printGLError();
+      fputsGLError(stderr);
   glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-      printGLError();
+      fputsGLError(stderr);
   // Performance isn't important here. Let's make sure there are no alignment issues.
   glPixelStorei(GL_PACK_ALIGNMENT, 1);
-      printGLError();
+      fputsGLError(stderr);
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-      printGLError();
+      fputsGLError(stderr);
   // While storing the positions to gl_texpos.
   if (gl_texpos) delete[] gl_texpos;
   gl_texpos = new struct gl_texpos[raws.size()];
@@ -311,11 +312,11 @@ void textures::upload_textures() {
     // Right. Upload the texture to the catalog.
     SDL_UnlockSurface(s);
     glBindTexture(GL_TEXTURE_2D, gl_catalog);
-    printGLError();
+    fputsGLError(stderr);
     glTexSubImage2D(GL_TEXTURE_2D, 0, ordered[pos].x, ordered[pos].y, ordered[pos].w, ordered[pos].h,
 		    GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     delete[] pixels;
-    printGLError();
+    fputsGLError(stderr);
     // Compute texture coordinates and store to gl_texpos for later output.
     // To make sure the right pixel is chosen when texturing, we must
     // pick coordinates that place us in the middle of the pixel we want.
@@ -330,13 +331,14 @@ void textures::upload_textures() {
     gl_texpos[raws_pos].bottom = ((double)ordered[pos].y+1+s->h) / (double)catalog_height;
   }
   // And that's that. Locked, loaded and ready for texturing.
-  printGLError();
+  fputsGLError(stderr);
   uploaded=true;
 }
 
 void textures::remove_uploaded_textures() {
   if (!uploaded) return; // Nothing to do
   glDeleteTextures(1, &gl_catalog);
+  fputsGLError(stderr);
   uploaded=false;
 }
 

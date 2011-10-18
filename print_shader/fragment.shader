@@ -4,7 +4,7 @@
 uniform sampler2D font;
 uniform vec2 txsz;			// tile size in texels
 uniform float final_alpha;
-uniform vec2 par; 			// point sprite multipliers
+uniform vec3 pszar; 			// { Parx, Pary, Psz }
 
 varying vec4 fg_color;          // tile: computed foreground color
 varying vec4 bg_color;          // tile: computed background color
@@ -13,7 +13,10 @@ varying vec4 cb_color;		// creature: computed foreground color
 varying vec4 texoffset;         // tile and creature offset into font texture
 
 void main() { // final touch
-    vec2 pc = gl_PointCoord/par;
+    vec2 pc = gl_PointCoord/pszar.xy;
+    if ((pc.x > 1.0) || (pc.y >1.0)) {
+    	discard;
+    }
     vec4 texcoords = vec4 (pc.x/txsz.x + texoffset.x,
 			   pc.y/txsz.y + texoffset.y,
 			   pc.x/txsz.x + texoffset.z,

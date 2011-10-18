@@ -1,4 +1,3 @@
-// SHADER
 extern GLchar _binary____fragment_shader_end;
 extern GLchar _binary____fragment_shader_start;
 extern GLchar _binary____vertex_shader_end;
@@ -6,19 +5,18 @@ extern GLchar _binary____vertex_shader_start;
 
 
 extern texdumpst texdumper;
-#define BUFFER_OFFSET(i) ((char *)NULL + (i))
-long do_dump_screen = 0;
-char *vs_path = NULL;
-char *fs_path = NULL;
+// #define BUFFER_OFFSET(i) ((char *)NULL + (i)) // BO offsets: do not need.
+
+glsl_configst glsl_conf;
+
 class renderer_glsl : public renderer {
 	enum uniforms {
 		FONT,
 		ANSI,
 		TXSZ,
 		FINAL_ALPHA,
-		POINTSIZE,
+		PSZAR,
 		VIEWPOINT,
-		PAR,
 
 		LASTUNIF
 	};
@@ -43,12 +41,25 @@ class renderer_glsl : public renderer {
 	GLint txsz_w, txsz_h; 		// texture size in tiles
 	GLint tile_w, tile_h;		// tile size in texels
 	GLint texture_filter;
-	bool do_swap, snap_window;
 	GLfloat *grid;
-	GLfloat Psz, Parx, Pary;	// Pointsize, PointAspectX, PointAspectY
+	GLint grid_size;
+	int Pszx, Pszy;	// Pointsize as drawn
 	SDL_Surface *surface;
 	uint32_t *screen_underlay;
 	int f_counter;
+	int viewport_offset_x, viewport_offset_y; // viewport tracking
+	int viewport_w, viewport_h;               // for mouse coordinate transformation
+
+	// configurable behavior
+	bool do_snap_window;  		// snap window size to match viewport when zooming/resizing
+	bool do_stretch_tiles; 		// deform tiles to fill whole viewport when zooming/resizing
+
+	// internal flags
+	bool do_reset_glcontext;    // if a full reset of opengl context is required after SDL_SetVideoMode()
+	bool do_swap; 				// if SDL_GL_Swap() is needed.
+	bool do_update_grid_vbo;    // if grid vbo was touched
+	bool opengl_initialized;
+	bool texture_ready;			// if we've got a suitable tileset/font texture to work with.
 
 	void screen_underlay_reshape() {
 		if (screen_underlay)
@@ -61,14 +72,24 @@ class renderer_glsl : public renderer {
 			if (!gps.screentexpos[i])
 				screen_underlay[i] = *((Uint32 *)gps.screen + i);
 	}
-	bool set_mode(int w, int h) {
-		Uint32 flags = SDL_OPENGL | SDL_HWSURFACE;
+	bool set_mode(int w, int h, bool fullscreen) {
+		Uint32 flags = SDL_OPENGL;
 
 		bool vsync = init.window.flag.has_flag(INIT_WINDOW_FLAG_VSYNC_ON);
 		bool singlebuf = init.display.flag.has_flag(INIT_DISPLAY_FLAG_SINGLE_BUFFER);
 		bool noresize = init.display.flag.has_flag(INIT_DISPLAY_FLAG_NOT_RESIZABLE);
+		bool fullscreen_state = (surface != NULL ) && (surface->flags & SDL_FULLSCREEN);
+		bool resolution_change = (surface == NULL) || (surface->w != w) || (surface->h != h);
+		if (	opengl_initialized
+			&& ( ( fullscreen_state && fullscreen )
+				|| ( ! ( fullscreen_state || fullscreen ) ) ) // xor :)
+			&& (! resolution_change ) ) // nothing to do here, move along
+				return true;
 
-		if (enabler.is_fullscreen()) {
+		if (opengl_initialized && do_reset_glcontext)
+			opengl_fini();
+
+		if (fullscreen) {
 			flags |= SDL_FULLSCREEN;
 		} else {
 			if (not noresize)
@@ -92,36 +113,37 @@ class renderer_glsl : public renderer {
 		SDL_GL_GetAttribute(SDL_GL_DOUBLEBUFFER, &test);
 		do_swap = (bool)test;
 		std::cerr<<"set_mode(): SDL_GL_DOUBLEBUFFER: "<<do_swap<<"\n";
-
+		fullscreen_state = surface->flags & SDL_FULLSCREEN;
+		std::cerr<<"set_mode(): SDL_FULLSCREEN: "<<fullscreen_state<<"\n";
 
 		if ( do_swap and singlebuf ) {
-			if (enabler.is_fullscreen())
+			if (fullscreen_state)
 				std::cerr<<"set_mode(): requested single-buffering, failed, not caring because of fullscreen.\n";
 			else
 				report_error("OpenGL","Requested single-buffering not available");
 		}
-		opengl_setmode();
+
+		if (!opengl_initialized)
+			opengl_init();
+
 		return true;
 	}
 	void makegrid() {
-		std::cerr << "makegrid(): "<<gps.dimx<<"x"<<gps.dimy<<"\n";
-		int size = sizeof(GLfloat) * gps.dimx * gps.dimy * 2;
-		grid = static_cast<GLfloat*> (realloc(grid, size));
+		int w = gps.dimx;
+		int h = gps.dimy;
+		std::cerr << "makegrid(): "<<w<<"x"<<h<<"\n";
+		grid_size = sizeof(GLfloat) * w * h * 2;
+		grid = static_cast<GLfloat*> (realloc(grid, grid_size));
 		int i = 0;
-		for (int xt = 0; xt < gps.dimx; xt++)
-			for (int yt = 0; yt < gps.dimy; yt++) {
+		for (int xt = 0; xt < w; xt++)
+			for (int yt = 0; yt < h; yt++) {
 				GLfloat x = xt + 0.5;
-				GLfloat y = gps.dimy - yt - 0.5;
+				GLfloat y = h - yt - 0.5;
 				grid[2 * i + 0] = x;
 				grid[2 * i + 1] = y;
 				i++;
 			}
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[POSITION]);
-		printGLError();
-		glBufferData(GL_ARRAY_BUFFER, size, grid, GL_STATIC_DRAW);
-		printGLError();
-		glVertexAttribPointer(attr_loc[POSITION], 2, GL_FLOAT, GL_FALSE, 0, 0);
-		printGLError();
+		do_update_grid_vbo = true;
 	}
 	void makeansitex(void) {
 		GLfloat ansi_stuff[16 * 4];
@@ -144,34 +166,42 @@ class renderer_glsl : public renderer {
 	}
 	void texture_reset() {
 		SDL_Surface *cats = texdumper.get();
+		if (!cats) {
+			texture_ready = false;
+			return; // just skip if there's nothing to use
+		}
 	    glMatrixMode(GL_TEXTURE);
 	    glLoadIdentity();
 	    glMatrixMode(GL_MODELVIEW);
-		printGLError();
+		fputsGLError(stderr);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, tex_id[FONT]);
-		printGLError();
+		fputsGLError(stderr);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cats->w, cats->h,
 				0, GL_RGBA, GL_UNSIGNED_BYTE, cats->pixels);
-		printGLError();
+		fputsGLError(stderr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		printGLError();
+		fputsGLError(stderr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		printGLError();
+		fputsGLError(stderr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, texture_filter);
-		printGLError();
+		fputsGLError(stderr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, texture_filter);
-		printGLError();
+		fputsGLError(stderr);
+		bool reshape_required = (  (tile_w != texdumper.t_w) || (tile_h != texdumper.t_h) );
 		txsz_w = texdumper.w_t;
 		txsz_h = texdumper.h_t;
 		tile_w = texdumper.t_w;
 		tile_h = texdumper.t_h;
 		glUniform2f(unif_loc[TXSZ], txsz_w, txsz_h);
-		printGLError();
+		fputsGLError(stderr);
 		fprintf(stderr, "accepted font texture (name=%d): %dx%dpx oa\n",
 				tex_id[FONT], cats->w, cats->h);
-		if (do_dump_screen > 0)
+		if (glsl_conf.dump_screen > 0)
 			texdumper.dump();
+		texture_ready = true;
+		if (reshape_required)
+			reshape();
 	}
 	bool shader_status(GLuint fsvs, GLenum pname) {
 		GLint param;
@@ -233,24 +263,27 @@ class renderer_glsl : public renderer {
 	void shader_setup() {
 		GLint v_len, f_len;
 		GLchar *v_src, *f_src;
-		if (vs_path) {
-			fprintf(stderr, "Using external vertex shader code: '%s'.\n", vs_path);
-			std::ifstream f(vs_path, ios::binary);
+		std::ifstream f;
+
+		f.open(glsl_conf.vs_path.c_str(), ios::binary);
+		if (f.is_open()) {
+			fprintf(stderr, "Using external vertex shader code from '%s'.\n", glsl_conf.vs_path.c_str());
+			std::ifstream f(glsl_conf.vs_path.c_str(), ios::binary);
 			v_len = f.seekg(0, std::ios::end).tellg();
 			f.seekg(0, ios::beg);
 			v_src = new GLchar[v_len + 1];
 			f.read(v_src, v_len);
 			f.close();
 			v_src[v_len] = 0;
-
 		} else {
 			fprintf(stderr, "Using embedded vertex shader code.\n");
 			v_len = &_binary____vertex_shader_end - &_binary____vertex_shader_start;
 			v_src = &_binary____vertex_shader_start;
 		}
-		if (fs_path) {
-			fprintf(stderr, "Using external fragment shader code: '%s'.\n", fs_path);
-			std::ifstream f(fs_path, ios::binary);
+		f.open(glsl_conf.fs_path.c_str(), ios::binary);
+		if (f.is_open()) {
+			fprintf(stderr, "Using external fragment shader code from '%s'.\n", glsl_conf.fs_path.c_str());
+			std::ifstream f(glsl_conf.fs_path.c_str(), ios::binary);
 			f_len = f.seekg(0, ios::end).tellg();
 			f.seekg(0, ios::beg);
 			f_src = new GLchar[f_len + 1];
@@ -268,15 +301,15 @@ class renderer_glsl : public renderer {
 		GLuint v_sh = glCreateShader(GL_VERTEX_SHADER);
 		GLuint f_sh = glCreateShader(GL_FRAGMENT_SHADER);
 		shader = glCreateProgram();
-		printGLError();
+		fputsGLError(stderr);
 
 		glAttachShader(shader, v_sh);
 		glAttachShader(shader, f_sh);
-		printGLError();
+		fputsGLError(stderr);
 
 		glShaderSource(v_sh, 1, v_srcp, &v_len);
 		glShaderSource(f_sh, 1, f_srcp, &f_len);
-		printGLError();
+		fputsGLError(stderr);
 
 		glCompileShader(v_sh);
 		if (!shader_status(v_sh, GL_COMPILE_STATUS))
@@ -284,7 +317,7 @@ class renderer_glsl : public renderer {
 		glCompileShader(f_sh);
 		if (!shader_status(f_sh, GL_COMPILE_STATUS))
 			exit(1);
-		printGLError();
+		fputsGLError(stderr);
 
 		glLinkProgram(shader);
 		if (!glprog_status(GL_LINK_STATUS))
@@ -295,16 +328,15 @@ class renderer_glsl : public renderer {
 			exit(1);
 
 		glUseProgram(shader);
-		printGLError();
+		fputsGLError(stderr);
 
 		unif_loc[FONT] = glGetUniformLocation(shader, "font");
 		unif_loc[ANSI] = glGetUniformLocation(shader, "ansi");
 		unif_loc[TXSZ] = glGetUniformLocation(shader, "txsz");
 		unif_loc[FINAL_ALPHA] = glGetUniformLocation(shader, "final_alpha");
-		unif_loc[POINTSIZE] = glGetUniformLocation(shader, "pointsize");
+		unif_loc[PSZAR] = glGetUniformLocation(shader, "pszar");
 		unif_loc[VIEWPOINT] = glGetUniformLocation(shader, "viewpoint");
-		unif_loc[PAR] = glGetUniformLocation(shader, "par");
-		printGLError();
+		fputsGLError(stderr);
 
 		attr_loc[SCREEN] = glGetAttribLocation(shader, "screen");
 		attr_loc[TEXPOS] = glGetAttribLocation(shader, "texpos");
@@ -313,133 +345,273 @@ class renderer_glsl : public renderer {
 		attr_loc[CF] = glGetAttribLocation(shader, "cf");
 		attr_loc[CBR] = glGetAttribLocation(shader, "cbr");
 		attr_loc[POSITION] = glGetAttribLocation(shader, "position");
-		printGLError();
+		fputsGLError(stderr);
 
 		glEnableVertexAttribArray(attr_loc[SCREEN]);
-		printGLError();
+		fputsGLError(stderr);
 		glEnableVertexAttribArray(attr_loc[TEXPOS]);
-		printGLError();
+		fputsGLError(stderr);
 		glEnableVertexAttribArray(attr_loc[ADDCOLOR]);
-		printGLError();
+		fputsGLError(stderr);
 		glEnableVertexAttribArray(attr_loc[GRAYSCALE]);
-		printGLError();
+		fputsGLError(stderr);
 		glEnableVertexAttribArray(attr_loc[CF]);
-		printGLError();
+		fputsGLError(stderr);
 		glEnableVertexAttribArray(attr_loc[CBR]);
-		printGLError();
-		fprintf(stderr, "%d", attr_loc[POSITION]);
+		fputsGLError(stderr);
 		glEnableVertexAttribArray(attr_loc[POSITION]);
-		printGLError();
+		fputsGLError(stderr);
 
 		glUniform1i(unif_loc[ANSI], 0); 		// GL_TEXTURE0 : ansi color strip
 		glUniform1i(unif_loc[FONT], 1); 		// GL_TEXTURE1 : font
 		glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
-		printGLError();
+		fputsGLError(stderr);
 		/* note: TXSZ and POINTSIZE/PAR are not bound yet. */
 	}
-	void opengl_setmode() {
+	void set_viewport() {
+		fprintf(stderr, "set_viewport(): got %dx%d out of %dx%d\n",
+				viewport_w, viewport_h, surface->w, surface->h);
+		viewport_offset_x = (surface->w - viewport_w)/2;
+		viewport_offset_y = (surface->h - viewport_h)/2;
 		glMatrixMode( GL_PROJECTION);
 		glLoadIdentity();
-		gluOrtho2D(0, surface->w, 0, surface->h);
-		glViewport(0, 0, surface->w, surface->h);
+		gluOrtho2D(0, viewport_w, 0, viewport_h);
+		glViewport(viewport_offset_x, viewport_offset_y, viewport_w, viewport_h);
 		glMatrixMode( GL_MODELVIEW);
 		glLoadIdentity();
 		glClearColor(0.3, 0.0, 0.0, 1.0);
 		glClear( GL_COLOR_BUFFER_BIT);
+		fputsGLError(stderr);
 	}
 	void opengl_init() {
-		glewInit(); // crashes on windows? Muahahaha
+		glewInit();
 		glGenTextures(2, tex_id);
 		glGenBuffers(LASTATTR, vbo_id);
-		opengl_setmode();
-		glEnable( GL_ALPHA_TEST);
+		glEnable(GL_ALPHA_TEST);
 		glAlphaFunc(GL_NOTEQUAL, 0);
-		glEnable( GL_BLEND);
+		glEnable(GL_BLEND);
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glDisable( GL_DEPTH_TEST);
-		glDepthMask( GL_FALSE);
-		glEnable( GL_POINT_SPRITE_ARB);
-		printGLError();
-
+		glDisable(GL_DEPTH_TEST);
+		glDepthMask(GL_FALSE);
+		glEnable(GL_POINT_SPRITE);
+		fputsGLError(stderr);
 		shader_setup();
+		fputsGLError(stderr);
 		makeansitex();
+		fputsGLError(stderr);
+		texture_reset();
+		fputsGLError(stderr);
+		opengl_initialized = true;
 	}
 	void opengl_fini() {
-		std::cerr<<"Oh noes! gl-fini!\n";
 		glDeleteProgram(shader);
 		glDeleteTextures(2, tex_id);
+		texture_ready = false;
 		glDeleteBuffers(7, vbo_id);
+		fputsGLError(stderr);
+		opengl_initialized = false;
 	}
 	void update_vbos() {
 		int tiles = gps.dimx * gps.dimy;
 		screen_underlay_update();
 		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[SCREEN]);
-		printGLError();
+		fputsGLError(stderr);
 //		glBufferData(GL_ARRAY_BUFFER, tiles * 4, gps.screen, GL_DYNAMIC_DRAW);
 		glBufferData(GL_ARRAY_BUFFER, tiles * 4, screen_underlay, GL_DYNAMIC_DRAW);
-		printGLError();
+		fputsGLError(stderr);
 		glVertexAttribPointer(attr_loc[SCREEN], 4, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		printGLError();
+		fputsGLError(stderr);
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[TEXPOS]);
 		glBufferData(GL_ARRAY_BUFFER, tiles * 4, gps.screentexpos, GL_DYNAMIC_DRAW);
 		glVertexAttribPointer(attr_loc[TEXPOS], 1, GL_UNSIGNED_INT, GL_FALSE, 0, 0);
-		printGLError();
+		fputsGLError(stderr);
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[ADDCOLOR]);
 		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_addcolor, GL_DYNAMIC_DRAW);
 		glVertexAttribPointer(attr_loc[ADDCOLOR], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		printGLError();
+		fputsGLError(stderr);
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[GRAYSCALE]);
 		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_grayscale, GL_DYNAMIC_DRAW);
 		glVertexAttribPointer(attr_loc[GRAYSCALE], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		printGLError();
+		fputsGLError(stderr);
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[CF]);
 		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_cf, GL_DYNAMIC_DRAW);
 		glVertexAttribPointer(attr_loc[CF], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		printGLError();
+		fputsGLError(stderr);
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[CBR]);
 		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_cbr, GL_DYNAMIC_DRAW);
 		glVertexAttribPointer(attr_loc[CBR], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		printGLError();
+		fputsGLError(stderr);
+
+		if (do_update_grid_vbo) {
+			glBindBuffer(GL_ARRAY_BUFFER, vbo_id[POSITION]);
+			fputsGLError(stderr);
+			glBufferData(GL_ARRAY_BUFFER, grid_size, grid, GL_STATIC_DRAW);
+			fputsGLError(stderr);
+			glVertexAttribPointer(attr_loc[POSITION], 2, GL_FLOAT, GL_FALSE, 0, 0);
+			fputsGLError(stderr);
+			do_update_grid_vbo = false;
+		}
 	}
-	void reshape(pair<int, int> size) {// Parameters: grid units
-		int w = MIN(MAX(size.first, MIN_GRID_X), MAX_GRID_X);
-		int h = MIN(MAX(size.second, MIN_GRID_Y), MAX_GRID_Y);
-		cerr<<"reshape(): to " << w << "x" << h << "\n";
+	/** reshape(): this function clamps grid size as needed and then resets grid, pointsizes
+	 *  and window size/video mode/fullscreen as dictated by the reshape policy.
+	 *  @param new_grid_x, new_grid_y - new requested grid size
+	 *  @param new_window_w, new_window_h - new requested window size
+	 *  @param toggle_fullscreen - if a toggle of fullscreen state was requested
+	 */
+	void reshape(int new_grid_w = 0, int new_grid_h = 0, int new_window_w = -1, int new_window_h = -1,
+					bool toggle_fullscreen = false) {
+		fprintf(stderr, "reshape(): got grid %dx%d window %dx%d texture_ready=%d stretch=%d snap=%d\n",
+				new_grid_w, new_grid_h, new_window_w, new_window_h,
+				texture_ready, do_stretch_tiles, do_snap_window);
 
-		gps_allocate(w, h);
-		screen_underlay_reshape();
-		makegrid();
+		if (!texture_ready) // can't draw anything without tile_w, tile_h and a texture anyway
+			return;
 
-		glMatrixMode( GL_PROJECTION);
-		glLoadIdentity();
-		gluOrtho2D(0, surface->w, 0, surface->h);
-		glMatrixMode( GL_MODELVIEW);
-		glLoadIdentity();
+		/* set new window size to current if default arguments are default */
+		if (new_window_w < 0)
+			new_window_w = surface->w;
+		if (new_window_h < 0)
+			new_window_h = surface->h;
 
-		float Pw = surface->w/gps.dimx;
-		float Ph = surface->h/gps.dimy;
+		/*  clamp requested grid size */
+		new_grid_w = MIN(MAX(new_grid_w, MIN_GRID_X), MAX_GRID_X);
+		new_grid_h= MIN(MAX(new_grid_h, MIN_GRID_Y), MAX_GRID_Y);
 
-		if (Pw > Ph) {
-			Psz = Pw;
-			Parx = 1.0;
-			Pary = Ph/Pw;
-		} else {
-			Psz = Ph;
-			Parx = Pw/Ph;
-			Pary = 1.0;
+		int new_psz_x, new_psz_y;
+
+		/* Attempt to preserve tile graphics aspect ratio
+		 * by not paying attention if viewport will be considerably
+		 * smaller than the window.
+		 */
+		double fx = new_window_w / ((double)new_grid_w * (double) tile_w);
+		double fy = new_window_h / ((double)new_grid_h * (double) tile_h);
+		double ff = MIN(fx, fy);
+
+		/* interim new tile sizes */
+		new_psz_x = ff * tile_w;
+		new_psz_y = ff * tile_h;
+
+		/* Attempt to stuff some more tiles on the screen by enlarging grid
+		 * unless we're zooming in since that would be counterproductive.  */
+		if ( (!enabler.overridden_grid_sizes.size())
+			   && (new_grid_w > gps.dimx)
+			   && (new_grid_h > gps.dimy) ) {
+			new_grid_w = new_window_w/new_psz_x;
+			new_grid_h = new_window_h/new_psz_y;
+
+			/* but clamp in case we're too optimistic */
+			new_grid_w = MIN(MAX(new_grid_w, MIN_GRID_X), MAX_GRID_X);
+			new_grid_h = MIN(MAX(new_grid_h, MIN_GRID_Y), MAX_GRID_Y);
 		}
 
-		fprintf(stderr, "reshape_gl(): to %dx%d grid %dx%d Ps %0.2f %0.2f %0.2f\n",
-				surface->w, surface->h, gps.dimx, gps.dimy, Psz, Parx, Pary);
+		if (do_stretch_tiles) {
+			/* now try to fill rest  of the window with graphics,
+			 * not paying any more attention to tile graphics aspect ratio
+			 */
+			new_psz_x = new_window_w / new_grid_w;
+			new_psz_y = new_window_h / new_grid_h;
+		}
 
-		glUniform1f(unif_loc[POINTSIZE], Psz);
-		glUniform2f(unif_loc[PAR], Parx, Pary);
+		/* okay, we can now set Psz/Parx/Pary to their new values */
+		Pszx = new_psz_x;
+		Pszy = new_psz_y;
+
+		if (Pszx > Pszy) {
+			GLfloat Parx = 1.0;
+			GLfloat Pary = (double)new_psz_y / (double)new_psz_x;
+			glUniform3f(unif_loc[PSZAR], Parx, Pary, Pszx);
+		} else {
+			GLfloat Parx = (double)new_psz_x / (double)new_psz_y;
+			GLfloat Pary = 1.0;
+			glUniform3f(unif_loc[PSZAR], Parx, Pary, Pszy);
+		}
+
+		/* viewport is the size of drawn grid in pixels, or alternatively,
+		 * the area in window that is actually drawn to
+		 */
+
+		viewport_w = new_psz_x * new_grid_w;
+		viewport_h = new_psz_y * new_grid_h;
+
+		fprintf(stderr, "reshape(): final grid %dx%d window %dx%d viewport %dx%d Psz %dx%d\n",
+				new_grid_w, new_grid_h, new_window_w, new_window_h,
+				viewport_w, viewport_h, Pszx, Pszy );
+
+		/* reshape grid if that is needed */
+		if ((new_grid_w != gps.dimx) || (new_grid_h != gps.dimy)) {
+			gps_allocate(new_grid_w, new_grid_h);
+			makegrid();
+			screen_underlay_reshape();
+		}
+
+		bool fullscreen = surface->flags & SDL_FULLSCREEN; // are we currently in fullscreen mode?
+
+		if (toggle_fullscreen) {
+			if (fullscreen) { // we're switching fullscreen off
+				set_mode(new_window_w, new_window_h, false);
+			} else { // we're switching fullscreen on
+				set_mode(new_window_w, new_window_h, true);
+			}
+		} else {
+			if (!fullscreen) {
+				if (do_snap_window) { // set window size to viewport size.
+					set_mode(viewport_w, viewport_h, false);
+					do_snap_window = false; // so it doesn't get used when zooming
+				} else { // ah, whatever.
+					set_mode(new_window_w, new_window_h, false);
+				}
+			} else {
+				; // we're in fullscreen and viewport changed due to zoom
+			}
+		}
+		set_viewport();
 	}
+	/** calculates new grid
+	 * Zoom policy: we must maintain grid aspect ratio.
+	 * Tile aspect ratio is handled in reshape()
+	 */
+	void zoom(double zoom) { // in - negative; out - positive
+		double g_ar = (double) gps.dimx / gps.dimy;
+		int new_grid_w = g_ar * zoom + gps.dimx;
+		int new_grid_h = zoom / g_ar + gps.dimy;
+
+		/* check if resulting Psz isn't excessively insane */
+		if (surface->w * surface->h / (new_grid_w * new_grid_h) < 4) {
+			fprintf(stderr, "Zoom canceled: grid %dx%d psz %.02fx%0.2f",
+					new_grid_w, new_grid_h,
+					(double)surface->w/new_grid_w,
+					(double)surface->h/new_grid_h );
+			return;
+		}
+
+		reshape(new_grid_w, new_grid_h);
+	}
+
+	void resize(int new_window_w, int new_window_h, bool toggle_fullscreen = false) {
+		/* here so we don't duplicate code for the fullscreen case */
+		if (   (new_window_w == surface->w)
+			&& (new_window_h == surface->h)
+			&& !toggle_fullscreen)
+			return;
+
+		int new_grid_w, new_grid_h;
+		if (enabler.overridden_grid_sizes.size()) {
+			new_grid_w = gps.dimx;
+			new_grid_h = gps.dimy;
+		} else {
+			// approximately preserve existing zoom
+			new_grid_w = new_window_w / ( surface->w / gps.dimx );
+			new_grid_h = new_window_h / ( surface->h / gps.dimy );
+		}
+		do_snap_window = glsl_conf.snap_window;
+		reshape(new_grid_w, new_grid_h, new_window_w, new_window_h, toggle_fullscreen);
+	}
+
 	void dump_screen(const char *fname) {
 		std::ofstream f;
 		const int dimx = init.display.grid_x;
@@ -475,119 +647,104 @@ public:
 		glClear(GL_COLOR_BUFFER_BIT);
 		update_vbos();
 		glDrawArrays(GL_POINTS, 0, gps.dimx * gps.dimy);
-		printGLError();
+		fputsGLError(stderr);
 		if (do_swap)
 			SDL_GL_SwapBuffers();
 		f_counter ++;
-		if ((do_dump_screen > 0) && (f_counter % do_dump_screen == 0))
+		if ((glsl_conf.dump_screen > 0) && (f_counter % glsl_conf.dump_screen == 0))
 			dump_screen("screendump");
 	}
 	virtual void set_fullscreen() 			{ zoom(zoom_fullscreen); }
 	//rtual void swap_arrays() 				{ if (0) std::cerr<<"swap_arrays(): do not need.\n"; }
 
 	virtual void zoom(zoom_commands cmd) {
-
 		switch (cmd) {
 			case zoom_in:
-				Psz ++;
+				if (enabler.overridden_grid_sizes.size())
+					return;
+				zoom(-init.input.zoom_speed);
 				break;
 			case zoom_out:
-				Psz --;
+				if (enabler.overridden_grid_sizes.size())
+					return;
+				zoom(init.input.zoom_speed);
 				break;
 			case zoom_reset:
-				// set 1:1 Psz
-				Psz = 16;
+				if (enabler.overridden_grid_sizes.size())
+					return;
+				// set 1:1
+				reshape(surface->w/tile_w, surface->h/tile_h);
 				break;
 			case zoom_resetgrid:
-				// dis be called when overriden zoom is released
-				Psz = 16;
+				/* intended to reset grid size to previous overriden size
+				 * but this does not work atm (see comments in sender).
+				 * So just set some grid size.
+				 */
+				fprintf(stderr, "zoom(): zoom_resetgrid\n");
+				do_snap_window = glsl_conf.snap_window;
+				reshape(surface->w/tile_w, surface->h/tile_h);
 				break;
 			case zoom_fullscreen:
+				/* received when toggling fullscreen.
+				 * enabler.is_fullscreen() is true if we're requested to set fullscreen mode
+				 * otherwise we're requested to set windowed mode
+				 */
+				int new_window_w, new_window_h;
+
 				if (enabler.is_fullscreen()) {
+					if ( surface->flags & SDL_FULLSCREEN) {
+						fprintf(stderr, "zoom(): Fullscreen mode requested, but we're already in it.\n");
+						return;
+					}
 					init.display.desired_windowed_width = surface->w;
 					init.display.desired_windowed_height = surface->h;
-					resize(init.display.desired_fullscreen_width,
-							init.display.desired_fullscreen_height);
+					new_window_w = init.display.desired_fullscreen_width;
+					new_window_h = init.display.desired_fullscreen_height;
 				} else {
-					resize(init.display.desired_windowed_width, init.display.desired_windowed_height);
+					if (!( surface->flags & SDL_FULLSCREEN)) {
+						fprintf(stderr, "Windowed mode requested, but we're already in it.\n");
+						return;
+					}
+					new_window_w = init.display.desired_windowed_width;
+					new_window_h = init.display.desired_windowed_height;
 				}
+				do_snap_window = glsl_conf.snap_window;
+				resize(new_window_w, new_window_h, true);
 				return;
-				break;
 		}
-		resize(surface->w, surface->h);
-
 	}
-	virtual void grid_resize(int w, int h) {
+	virtual void grid_resize(int new_grid_w, int new_grid_h) {
 		/* dis gets called from enablerst::override_grid_size() only
 		 * this means the grid size is fixed. thus do not touch it,
-		 * just recalculate Psize/Parx/Pary to maximum window
-		 * utilization.
+		 *
+		 * do_snap_window gets reset every reshape to not be
+		 * taken into account when zooming (what a crappy design)
 		 */
-		std::cerr<<"renderer_glsl::grid_resize(): "<<w<<"x"<<h<<" (t).\n";
-		gps_allocate(w, h);
-		screen_underlay_reshape();
-		makegrid();
-		resize(surface->w, surface->h);
+		do_snap_window = glsl_conf.snap_window;
+		reshape(new_grid_w, new_grid_h);
 	}
 	virtual void resize(int w, int h) {
-		/* dis gets called on SDL_VIDEORESIZE event
-		 * 1. IFF enabler.overridden_grid_sizes.size()
-		 * 	 - recompute Psz/Parx/Pary only, do not touch grid
-		 * 2. ELSE
-		 *   - recompute Parx/Pary and grid size based only on the
-		 *   previous psize.(keep it)
-		 *   do we keep Paspect ratio??
-		 *
-		 */
-		int grid_w, grid_h;
-		if (enabler.overridden_grid_sizes.size()) {
-			grid_w = gps.dimx;
-			grid_h = gps.dimy;
-		} else {
-			/* resize grid so as to attempt to keep
-			 * tile aspect ratio closer to the one
-			 * of the texture, keeping in mind current
-			 * zoom level (which is the Psz)
-			 */
-
-			float _Parx = tile_w > tile_h ? 1.0 : (float)tile_w/tile_h;
-			float _Pary = tile_w < tile_h ? 1.0 : (float)tile_h/tile_w;
-
-			grid_w = MIN( MAX ( (w/(Psz*_Parx)), MIN_GRID_X), MAX_GRID_X);
-			grid_h = MIN( MAX ( (h/(Psz*_Pary)), MIN_GRID_Y), MAX_GRID_Y);
-
-			gps_allocate(grid_w, grid_h);
-			screen_underlay_reshape();
-			makegrid();
-		}
-		int psz_x = w / gps.dimx;
-		int psz_y = h / gps.dimy;
-		if (psz_x > psz_y) {
-			Psz = psz_x;
-			Parx = (float)psz_y/psz_x;
-			Pary = 1.0;
-		} else {
-			Psz = psz_y;
-			Parx = 1.0;
-			Pary = (float)psz_x/psz_y;
-		}
-		if (snap_window) {
-			w = gps.dimx * psz_x;
-			h = gps.dimy * psz_y;
-		}
-		if ((w != surface->w) || (h != surface->h)) {
-			set_mode(w, h);
-			opengl_setmode();
-		}
-		glUniform1f(unif_loc[POINTSIZE], Psz);
-		glUniform2f(unif_loc[PAR], Parx, Pary);
-
-		fprintf(stderr, "resize(): to %dx%d grid %dx%d Ps %0.2f %0.2f %0.2f\n",
-				surface->w, surface->h, gps.dimx, gps.dimy, Psz, Parx, Pary);
+		/* dis gets called on SDL_VIDEORESIZE event */
+		do_snap_window = glsl_conf.snap_window;
+		resize(w, h, false);
 	}
+
 	renderer_glsl() {
-		f_counter = 0;snap_window = true;
+		f_counter = 0;
+		texture_ready = false;
+		tile_w = 0;
+		tile_h = 0;
+		do_snap_window = glsl_conf.snap_window;
+		do_stretch_tiles = !init.display.flag.has_flag(INIT_DISPLAY_FLAG_BLACK_SPACE);
 		texture_filter = init.window.flag.has_flag(INIT_WINDOW_FLAG_TEXTURE_LINEAR) ? GL_LINEAR : GL_NEAREST;
+
+		char sdl_videodriver[256];
+		if (NULL == SDL_VideoDriverName(sdl_videodriver, sizeof(sdl_videodriver)))
+			/* wtf?? SDL_Init has not been called */
+			return;
+
+		do_reset_glcontext =  (strncmp(sdl_videodriver, "x11", 3) != 0);
+
 		SDL_EnableKeyRepeat(0, 0); // Disable key repeat
 		SDL_WM_SetCaption(GAME_TITLE_STRING, NULL); // Set window title/icon.
 		SDL_Surface *icon = IMG_Load("data/art/icon.png");
@@ -595,15 +752,30 @@ public:
 			SDL_WM_SetIcon(icon, NULL);
 			SDL_FreeSurface(icon);
 		}
-		Psz = 16;
-		Parx = 1.0;
-		Pary = 1.0;
 
 		if (init.display.desired_fullscreen_width == 0
 				|| init.display.desired_fullscreen_height == 0) {
-			const struct SDL_VideoInfo *info = SDL_GetVideoInfo();
-			init.display.desired_fullscreen_width = info->current_w;
-			init.display.desired_fullscreen_height = info->current_h;
+			SDL_Rect **modes = SDL_ListModes(NULL, SDL_OPENGL|SDL_FULLSCREEN);
+			/* avoid setting fullscreen over all monitors if there's no
+			 * user input on this <- needs more thought */
+			SDL_Rect *goodmode = NULL;
+			if (modes == NULL) {
+				// okay, no fullscreen opengl here
+				enabler.fullscreen = false;
+			}
+			if (modes == (SDL_Rect **)-1)
+				; // now, wtf we're going to do?
+			else {
+				goodmode = modes[0];
+				for (int i=1; modes[i]; ++i) {
+					if ((goodmode->w/modes[i]->w < 2) && (goodmode->w/modes[i]->w < 2))
+						break;
+					goodmode = modes[i];
+				}
+
+				init.display.desired_fullscreen_width = goodmode->w;
+				init.display.desired_fullscreen_height = goodmode->h;
+			}
 		}
 
 		// Initialize our window
@@ -611,29 +783,28 @@ public:
 				enabler.is_fullscreen() ? init.display.desired_fullscreen_width
 						: init.display.desired_windowed_width,
 				enabler.is_fullscreen() ? init.display.desired_fullscreen_height
-						: init.display.desired_windowed_height );
+						: init.display.desired_windowed_height,
+				enabler.is_fullscreen() );
 
 		// Fallback to windowed mode if fullscreen fails
 		if (!worked && enabler.is_fullscreen()) {
-			enabler.fullscreen = false;
+			enabler.fullscreen = false; // FIXME: access violation: refactor enablerst
 			report_error("SDL initialization failure, trying windowed mode",
 					SDL_GetError());
 			worked = set_mode(init.display.desired_windowed_width,
-					init.display.desired_windowed_height);
+					init.display.desired_windowed_height, false);
 		}
 		// Quit if windowed fails
 		if (!worked) {
 			report_error("SDL initialization failure", SDL_GetError());
 			exit(EXIT_FAILURE);
 		}
-		screen_underlay_reshape();
-		opengl_init();
 	}
 	virtual bool get_mouse_coords(int &x, int &y) {
 		int mouse_x, mouse_y;
 		SDL_GetMouseState(&mouse_x, &mouse_y);
-		x = double(mouse_x) / Psz*Parx * double(gps.dimx);
-		y = double(mouse_y) / Psz*Pary * double(gps.dimy);
+		x = (mouse_x - viewport_offset_x) / (Pszx * gps.dimx);
+		y = (mouse_y - viewport_offset_y) / (Pszy * gps.dimy);
 		return true;
 	}
 	virtual bool uses_opengl() {
