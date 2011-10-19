@@ -746,7 +746,7 @@ set<InterfaceKey> enabler_inputst::get_input(Time now) {
     // Delete the event from the timeline and iterate
     timeline.erase(ev++);
   }
-#ifdef DEBUG
+#ifdef DEBUG_INPUT
   if (input.size() && !init.display.flag.has_flag(INIT_DISPLAY_FLAG_TEXT)) {
     cout << "Returning input:\n";
     set<InterfaceKey>::iterator it;
