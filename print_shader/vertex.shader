@@ -12,7 +12,6 @@
     nc_s = row/rows = floor(idx/columns)/rows
 */
 
-
 const float ANSI_CC = 16.0; // ansi color count 
 
 uniform sampler1D ansi;
@@ -30,15 +29,15 @@ attribute vec2 position;        // almost forgot teh grid
 
 varying vec4 fg_color;          // tile: computed foreground color
 varying vec4 bg_color;          // tile: computed background color
-varying vec4 cf_color;		// creature: computed foreground color
-varying vec4 cb_color;		// creature: computed foreground color
+varying vec4 cf_color;          // creature: computed foreground color
+varying vec4 cb_color;          // creature: computed foreground color
 varying vec4 texoffset;         // tile and creature's offset into font texture
 
 vec2 ansiconvert(vec3 c) { // { fg, bg, bold }
     
     float bold_factor = 0;
     if (c.z > 0.1)
-	bold_factor = 8;
+        bold_factor = 8;
 
     float fg_tc = mod(c.x + bold_factor, ANSI_CC) / ANSI_CC;
     float bg_tc = mod(c.y, ANSI_CC) / ANSI_CC;
@@ -56,24 +55,24 @@ void main() { // precomputes whatever there can be precomputed
     vec2 ansi_c = ansiconvert(screen.yzw);
     
     if (texpos > 0.1) {
-	cre_idx = texpos;
-	if  (grayscale > 0.1) {  
-	    cf_color = texture1D(ansi, cf/ANSI_CC);
-	    cb_color = texture1D(ansi, cbr/ANSI_CC);
-	} else if (addcolor > 0.1) {
-	    cf_color = texture1D(ansi, ansi_c.x);
-	    cb_color = texture1D(ansi, ansi_c.y);
-	} else {	    
-	    cf_color = vec4(1,1,1,1);
-	    cb_color = vec4(0,0,0,1);
-	}
-		texoffset.z = fract( cre_idx / txsz.x );          // this magically does not depend
-		texoffset.w = floor( cre_idx / txsz.x ) / txsz.y; // on graphics' aspect ratio or size.             
+        cre_idx = texpos;
+        if  (grayscale > 0.1) {  
+            cf_color = texture1D(ansi, cf/ANSI_CC);
+            cb_color = texture1D(ansi, cbr/ANSI_CC);
+        } else if (addcolor > 0.1) {
+            cf_color = texture1D(ansi, ansi_c.x);
+            cb_color = texture1D(ansi, ansi_c.y);
+        } else {	    
+            cf_color = vec4(1,1,1,1);
+            cb_color = vec4(0,0,0,1);
+    	}
+        texoffset.z = fract( cre_idx / txsz.x );          // this magically does not depend
+        texoffset.w = floor( cre_idx / txsz.x ) / txsz.y; // on graphics' aspect ratio or size.             
     } else {
-		cf_color = vec4(1,1,1,1);
-		cb_color = vec4(0,0,0,1);
-		texoffset.z = -8.23;
-		texoffset.w = -23.42;
+        cf_color = vec4(1,1,1,1);
+        cb_color = vec4(0,0,0,1);
+        texoffset.z = -8.23;
+        texoffset.w = -23.42;
     }
     
     scr_idx = screen.x;
