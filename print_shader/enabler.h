@@ -874,7 +874,6 @@ struct texture_fullid {
 typedef int texture_ttfid; // Just the texpos
 
 class renderer {
-	void dump_screen(const char *);
  protected:
   unsigned char *screen;
   long *screentexpos;
@@ -890,7 +889,7 @@ class renderer {
   unsigned char *screentexpos_cf_old;
   unsigned char *screentexpos_cbr_old;
 
-  void gps_allocate(int x, int y);
+  virtual void gps_allocate(int x, int y);
   Either<texture_fullid,texture_ttfid> screen_to_texid(int x, int y);
  public:
   virtual void display();
@@ -902,7 +901,7 @@ class renderer {
   virtual void resize(int w, int h) = 0;
   virtual void grid_resize(int w, int h) = 0;
   virtual void texture_reset() {};
-  void swap_arrays();
+  virtual void swap_arrays();
   renderer() {
     screen = NULL;
     screentexpos = NULL;

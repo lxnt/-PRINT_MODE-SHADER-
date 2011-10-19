@@ -5,22 +5,25 @@ extern GLchar _binary____vertex_shader_start;
 
 
 extern texdumpst texdumper;
-// #define BUFFER_OFFSET(i) ((char *)NULL + (i)) // BO offsets: do not need.
+#define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 glsl_configst glsl_conf;
+const GLsizeiptr sizeof_tile = 4 + 4 + 4 + 1 + 1 + 1 + 1;
+const GLsizeiptr sizeof_screen = MAX_GRID_X * MAX_GRID_Y * sizeof_tile;
+const GLsizeiptr sizeof_vertex = 2 * sizeof(GLfloat);
+const GLsizeiptr sizeof_grid = MAX_GRID_X * MAX_GRID_Y * sizeof_vertex;
 
 class renderer_glsl : public renderer {
 	enum uniforms {
-		FONT,
-		ANSI,
+		FONT_SAMPLER,
+		ANSI_SAMPLER,
 		TXSZ,
 		FINAL_ALPHA,
 		PSZAR,
 		VIEWPOINT,
 
-		LASTUNIF
+		LAST_UNIF
 	};
-
 	enum attrarrays {
 		SCREEN,
 		TEXPOS,
@@ -30,47 +33,145 @@ class renderer_glsl : public renderer {
 		CBR,
 		POSITION,
 
-		LASTATTR
+		LAST_ATTR
+	};
+	enum buffers {
+		ULOD_BO,
+		POSITION_BO,
+
+		LAST_BO
+	};
+	enum textures {
+		FONT,
+		ANSI,
+
+		LAST_TEX
 	};
 
-	GLuint tex_id[2];
-	GLuint vbo_id[LASTATTR];
-	GLint  attr_loc[LASTATTR];
-	GLint  unif_loc[LASTUNIF];
+	GLuint tex_id[LAST_TEX];
+	GLuint vbo_id[LAST_BO];
+	GLint  attr_loc[LAST_ATTR];
+	GLint  unif_loc[LAST_UNIF];
 	GLuint shader;
 	GLint txsz_w, txsz_h; 		// texture size in tiles
 	GLint tile_w, tile_h;		// tile size in texels
-	GLint texture_filter;
 	GLfloat *grid;
-	GLint grid_size;
-	int Pszx, Pszy;	// Pointsize as drawn
+	GLsizeiptr grid_bo_size;	// size of currently used BO
+	GLint grid_tile_count; 		// and in tiles
+	GLint grid_w, grid_h;		// and again in tiles
+	int Pszx, Pszy;				// Point sprite size as drawn
 	SDL_Surface *surface;
-	uint32_t *screen_underlay;
-	int f_counter;
+
+	unsigned char *screen; // ULoD: an ugly lump of data.
+	GLsizeiptr screen_bo_size;
+	struct {
+		GLsizei screen; // should be 0 at all times, but ...
+		GLsizei underlay;
+		GLsizei texpos;
+		GLsizei addcolor;
+		GLsizei grayscale;
+		GLsizei cf;
+		GLsizei cbr;
+	} bo_offset;
+
+	int f_counter;							  // frame counter
 	int viewport_offset_x, viewport_offset_y; // viewport tracking
 	int viewport_w, viewport_h;               // for mouse coordinate transformation
 
 	// configurable behavior
 	bool do_snap_window;  		// snap window size to match viewport when zooming/resizing
 	bool do_stretch_tiles; 		// deform tiles to fill whole viewport when zooming/resizing
+	GLint texture_filter;
 
 	// internal flags
 	bool do_reset_glcontext;    // if a full reset of opengl context is required after SDL_SetVideoMode()
 	bool do_swap; 				// if SDL_GL_Swap() is needed.
-	bool do_update_grid_vbo;    // if grid vbo was touched
+	bool do_update_attrs;       // if grid vbo was touched: that is, reshaped.
 	bool opengl_initialized;
 	bool texture_ready;			// if we've got a suitable tileset/font texture to work with.
+	bool reset_underlay;		// if underlay has to be reset, i.e. there was scrolling.
 
-	void screen_underlay_reshape() {
-		if (screen_underlay)
-			delete [] screen_underlay;
-		screen_underlay = new uint32_t[gps.dimx*gps.dimy];
-		memmove(screen_underlay, gps.screen, gps.dimx*gps.dimy*4);
-	}
+#define DEBUG_CREABLEND 23
+#ifdef DEBUG_CREABLEND
+	Uint32 last_seen_ul, last_seen_crea;
+
+	inline Uint32 *tile_u32(int x, int y, int s) { return ((Uint32 *) (screen + s) + x*grid_h + y ); };
+	inline Uint32 *index_u32(int i, int s) { return ((Uint32 *) (screen + s) + i ); };
+#endif
+	/** screen_underlay. Contains a copy of screen with tiles that are
+	 * now under creatures not overwritten, if possible.
+	 * For that, just before next render_things (where game internals overwrite stuff in ULoD),
+	 * we copy previous frame screen data to the underlay if there was no creature on the tile.
+	 *
+	 * Now, if in the next frame creature moved to this tile, we have something to render under it.
+	 *
+	 * This breaks on scrolling, because underlay no longer matches next frame screen.
+	 *
+	 * This also does not work when creature does not move wrt the screen, as in adventure mode,
+	 * where screen is centered on the hero most of the time, while view scrolls as he moves.
+	 *
+	 * However in df mode, this mostly works, because there's less scrolling, and dwarves
+	 * tend to run around a lot, or blink in/out if standing on a slope or something like that.
+	 *
+	 */
 	void screen_underlay_update() {
-		for (int i=0; i<gps.dimx*gps.dimy; i++)
-			if (!gps.screentexpos[i])
-				screen_underlay[i] = *((Uint32 *)gps.screen + i);
+		if (reset_underlay) {
+			memmove(screen + bo_offset.underlay, screen, 4*grid_tile_count);
+			reset_underlay = false;
+			return;
+		}
+		for (int i=0; i < grid_tile_count; i++)
+			if (! *index_u32(i, bo_offset.texpos) ) // no creature here
+				*index_u32(i, bo_offset.underlay) = *index_u32(i, bo_offset.screen);
+#ifdef DEBUG_CREABLEND
+			else {
+				if ( *index_u32(i, bo_offset.underlay) != *index_u32(i, bo_offset.screen) ) {
+					Uint32 crea = *index_u32(i, bo_offset.underlay);
+					Uint32 val = *index_u32(i, bo_offset.screen);
+					if ((val != last_seen_ul) || (crea != last_seen_crea)) {
+						unsigned char *gp = (unsigned char *)index_u32(i, bo_offset.screen);
+						unsigned char *ul = (unsigned char *)index_u32(i, bo_offset.underlay);
+						fprintf(stderr, "crid %04x@%04x: %02x:%02x:%02x:%02x -> %02x:%02x:%02x:%02x\n",
+							*index_u32(i, bo_offset.texpos), i,
+							ul[0], ul[1], ul[2], ul[3],
+							gp[0], gp[1], gp[2], gp[3] );
+						last_seen_ul = val;
+						last_seen_crea = crea;
+					}
+				}
+			}
+#endif
+	}
+
+	virtual void gps_allocate(int x, int y) {
+		fprintf(stderr, "gps_allocate(%d, %d)\n", x, y);
+		ulod_allocate(x, y);
+		grid_allocate(x, y);
+		gps.resize(x, y);
+		do_update_attrs = true;
+	}
+	void ulod_allocate(int x, int y) {
+		if (!screen)
+			screen = (unsigned char *) malloc(sizeof_screen);
+
+		screen_bo_size = sizeof_tile*x*y;
+
+		memset(screen, 0, screen_bo_size);
+
+		bo_offset.screen 		= x*y*(0);
+		bo_offset.underlay 		= x*y*(4);
+		bo_offset.texpos		= x*y*(4+4);
+		bo_offset.addcolor	    = x*y*(4+4+4);
+		bo_offset.grayscale		= x*y*(4+4+4+1);
+		bo_offset.cf			= x*y*(4+4+4+1+1);
+		bo_offset.cbr			= x*y*(4+4+4+1+1+1);
+
+		gps.screen 					 	= (unsigned char *) ( screen + bo_offset.screen );
+		gps.screentexpos 				= (         long *) ( screen + bo_offset.texpos );
+		gps.screentexpos_addcolor 		= (         char *) ( screen + bo_offset.addcolor );
+		gps.screentexpos_grayscale 		= (unsigned char *) ( screen + bo_offset.grayscale );
+		gps.screentexpos_cf 			= (unsigned char *) ( screen + bo_offset.cf );
+		gps.screentexpos_cbr 			= (unsigned char *) ( screen + bo_offset.cbr );
 	}
 	bool set_mode(int w, int h, bool fullscreen) {
 		Uint32 flags = SDL_OPENGL;
@@ -128,12 +229,10 @@ class renderer_glsl : public renderer {
 
 		return true;
 	}
-	void makegrid() {
-		int w = gps.dimx;
-		int h = gps.dimy;
-		std::cerr << "makegrid(): "<<w<<"x"<<h<<"\n";
-		grid_size = sizeof(GLfloat) * w * h * 2;
-		grid = static_cast<GLfloat*> (realloc(grid, grid_size));
+	void grid_allocate(int w, int h) {
+		grid_bo_size =  w * h * sizeof_vertex;
+		if (!grid)
+			grid = (GLfloat *) malloc(sizeof_grid);
 		int i = 0;
 		for (int xt = 0; xt < w; xt++)
 			for (int yt = 0; yt < h; yt++) {
@@ -143,7 +242,9 @@ class renderer_glsl : public renderer {
 				grid[2 * i + 1] = y;
 				i++;
 			}
-		do_update_grid_vbo = true;
+		grid_w = w;
+		grid_h = h;
+		grid_tile_count = grid_w*grid_h;
 	}
 	void makeansitex(void) {
 		GLfloat ansi_stuff[16 * 4];
@@ -330,21 +431,21 @@ class renderer_glsl : public renderer {
 		glUseProgram(shader);
 		fputsGLError(stderr);
 
-		unif_loc[FONT] = glGetUniformLocation(shader, "font");
-		unif_loc[ANSI] = glGetUniformLocation(shader, "ansi");
-		unif_loc[TXSZ] = glGetUniformLocation(shader, "txsz");
-		unif_loc[FINAL_ALPHA] = glGetUniformLocation(shader, "final_alpha");
-		unif_loc[PSZAR] = glGetUniformLocation(shader, "pszar");
-		unif_loc[VIEWPOINT] = glGetUniformLocation(shader, "viewpoint");
+		unif_loc[FONT_SAMPLER]	= glGetUniformLocation(shader, "font");
+		unif_loc[ANSI_SAMPLER]	= glGetUniformLocation(shader, "ansi");
+		unif_loc[TXSZ]			= glGetUniformLocation(shader, "txsz");
+		unif_loc[FINAL_ALPHA]   = glGetUniformLocation(shader, "final_alpha");
+		unif_loc[PSZAR] 	    = glGetUniformLocation(shader, "pszar");
+		unif_loc[VIEWPOINT]     = glGetUniformLocation(shader, "viewpoint");
 		fputsGLError(stderr);
 
-		attr_loc[SCREEN] = glGetAttribLocation(shader, "screen");
-		attr_loc[TEXPOS] = glGetAttribLocation(shader, "texpos");
-		attr_loc[ADDCOLOR] = glGetAttribLocation(shader, "addcolor");
-		attr_loc[GRAYSCALE] = glGetAttribLocation(shader, "grayscale");
-		attr_loc[CF] = glGetAttribLocation(shader, "cf");
-		attr_loc[CBR] = glGetAttribLocation(shader, "cbr");
-		attr_loc[POSITION] = glGetAttribLocation(shader, "position");
+		attr_loc[SCREEN] 		= glGetAttribLocation(shader, "screen");
+		attr_loc[TEXPOS] 		= glGetAttribLocation(shader, "texpos");
+		attr_loc[ADDCOLOR] 		= glGetAttribLocation(shader, "addcolor");
+		attr_loc[GRAYSCALE] 	= glGetAttribLocation(shader, "grayscale");
+		attr_loc[CF] 			= glGetAttribLocation(shader, "cf");
+		attr_loc[CBR] 			= glGetAttribLocation(shader, "cbr");
+		attr_loc[POSITION] 		= glGetAttribLocation(shader, "position");
 		fputsGLError(stderr);
 
 		glEnableVertexAttribArray(attr_loc[SCREEN]);
@@ -383,10 +484,37 @@ class renderer_glsl : public renderer {
 		glClear( GL_COLOR_BUFFER_BIT);
 		fputsGLError(stderr);
 	}
+	void opengl_vital_parameters() {
+		struct {
+			GLint needed;
+			GLenum pname;
+			const char *name;
+		} _vp[] = {
+			{  7, GL_MAX_VERTEX_ATTRIBS, "GL_MAX_VERTEX_ATTRIBS" }, // number of vec4 attribs available
+			{  7, GL_MAX_VERTEX_UNIFORM_COMPONENTS, "GL_MAX_VERTEX_UNIFORM_COMPONENTS" }, // single-component values
+			{  6, GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, "GL_MAX_FRAGMENT_UNIFORM_COMPONENTS" }, // same as above
+			{  1, GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, "GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS" }, // samplers in vert shader
+			{  1, GL_MAX_TEXTURE_IMAGE_UNITS, "GL_MAX_TEXTURE_IMAGE_UNITS" },  // samplers in frag shader
+			{ 20, GL_MAX_VARYING_FLOATS, "GL_MAX_VARYING_FLOATS" }, // 4 varying_floats = 1 texture_coord?
+			{  7, GL_MAX_TEXTURE_COORDS, "GL_MAX_TEXTURE_COORDS" }, // 1 texture_coord = 4 varying_floats?
+			{ -4, GL_POINT_SIZE_MIN, "GL_POINT_SIZE_MIN" },
+			{ 96, GL_POINT_SIZE_MAX, "GL_POINT_SIZE_MAX" }, // no idea of our requirements
+			{  },
+		}, *vp = _vp;
+		while (vp->name) {
+			GLint param;
+			glGetIntegerv(vp->pname, &param);
+			if ((param < vp->needed) ||((param<0) && (param+vp->needed) > 0))
+				fputs("** ", stderr);
+			fprintf(stderr, "%s=%d, needed=%d\n", vp->name, param, vp->needed < 0 ? -vp->needed : vp->needed);
+			vp++;
+		}
+	}
 	void opengl_init() {
 		glewInit();
-		glGenTextures(2, tex_id);
-		glGenBuffers(LASTATTR, vbo_id);
+		opengl_vital_parameters();
+		glGenTextures(LAST_TEX, tex_id);
+		glGenBuffers(LAST_BO, vbo_id);
 		glEnable(GL_ALPHA_TEST);
 		glAlphaFunc(GL_NOTEQUAL, 0);
 		glEnable(GL_BLEND);
@@ -405,56 +533,42 @@ class renderer_glsl : public renderer {
 	}
 	void opengl_fini() {
 		glDeleteProgram(shader);
-		glDeleteTextures(2, tex_id);
+		glDeleteTextures(LAST_TEX, tex_id);
 		texture_ready = false;
-		glDeleteBuffers(7, vbo_id);
+		glDeleteBuffers(LAST_BO, vbo_id);
 		fputsGLError(stderr);
 		opengl_initialized = false;
+		do_update_attrs = true;
 	}
 	void update_vbos() {
-		int tiles = gps.dimx * gps.dimy;
 		screen_underlay_update();
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[SCREEN]);
+
+		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[ULOD_BO]);
 		fputsGLError(stderr);
-//		glBufferData(GL_ARRAY_BUFFER, tiles * 4, gps.screen, GL_DYNAMIC_DRAW);
-		glBufferData(GL_ARRAY_BUFFER, tiles * 4, screen_underlay, GL_DYNAMIC_DRAW);
-		fputsGLError(stderr);
-		glVertexAttribPointer(attr_loc[SCREEN], 4, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
+		glBufferData(GL_ARRAY_BUFFER, screen_bo_size, screen, GL_STREAM_DRAW);
 		fputsGLError(stderr);
 
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[TEXPOS]);
-		glBufferData(GL_ARRAY_BUFFER, tiles * 4, gps.screentexpos, GL_DYNAMIC_DRAW);
-		glVertexAttribPointer(attr_loc[TEXPOS], 1, GL_UNSIGNED_INT, GL_FALSE, 0, 0);
-		fputsGLError(stderr);
-
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[ADDCOLOR]);
-		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_addcolor, GL_DYNAMIC_DRAW);
-		glVertexAttribPointer(attr_loc[ADDCOLOR], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		fputsGLError(stderr);
-
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[GRAYSCALE]);
-		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_grayscale, GL_DYNAMIC_DRAW);
-		glVertexAttribPointer(attr_loc[GRAYSCALE], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		fputsGLError(stderr);
-
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[CF]);
-		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_cf, GL_DYNAMIC_DRAW);
-		glVertexAttribPointer(attr_loc[CF], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		fputsGLError(stderr);
-
-		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[CBR]);
-		glBufferData(GL_ARRAY_BUFFER, tiles, gps.screentexpos_cbr, GL_DYNAMIC_DRAW);
-		glVertexAttribPointer(attr_loc[CBR], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, 0);
-		fputsGLError(stderr);
-
-		if (do_update_grid_vbo) {
-			glBindBuffer(GL_ARRAY_BUFFER, vbo_id[POSITION]);
+		if (do_update_attrs) {
+			glVertexAttribPointer(attr_loc[SCREEN], 4, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.underlay));
 			fputsGLError(stderr);
-			glBufferData(GL_ARRAY_BUFFER, grid_size, grid, GL_STATIC_DRAW);
+			glVertexAttribPointer(attr_loc[TEXPOS], 1, GL_UNSIGNED_INT, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.texpos));
+			fputsGLError(stderr);
+			glVertexAttribPointer(attr_loc[ADDCOLOR], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.addcolor));
+			fputsGLError(stderr);
+			glVertexAttribPointer(attr_loc[GRAYSCALE], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.grayscale));
+			fputsGLError(stderr);
+			glVertexAttribPointer(attr_loc[CF], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.cf));
+			fputsGLError(stderr);
+			glVertexAttribPointer(attr_loc[CBR], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.cbr));
+			fputsGLError(stderr);
+
+			glBindBuffer(GL_ARRAY_BUFFER, vbo_id[POSITION_BO]);
+			fputsGLError(stderr);
+			glBufferData(GL_ARRAY_BUFFER, grid_bo_size, grid, GL_STATIC_DRAW);
 			fputsGLError(stderr);
 			glVertexAttribPointer(attr_loc[POSITION], 2, GL_FLOAT, GL_FALSE, 0, 0);
 			fputsGLError(stderr);
-			do_update_grid_vbo = false;
+			do_update_attrs = false;
 		}
 	}
 	/** reshape(): this function clamps grid size as needed and then resets grid, pointsizes
@@ -499,8 +613,8 @@ class renderer_glsl : public renderer {
 		/* Attempt to stuff some more tiles on the screen by enlarging grid
 		 * unless we're zooming in since that would be counterproductive.  */
 		if ( (!enabler.overridden_grid_sizes.size())
-			   && (new_grid_w > gps.dimx)
-			   && (new_grid_h > gps.dimy) ) {
+			   && (new_grid_w > grid_w)
+			   && (new_grid_h > grid_h) ) {
 			new_grid_w = new_window_w/new_psz_x;
 			new_grid_h = new_window_h/new_psz_y;
 
@@ -543,10 +657,8 @@ class renderer_glsl : public renderer {
 				viewport_w, viewport_h, Pszx, Pszy );
 
 		/* reshape grid if that is needed */
-		if ((new_grid_w != gps.dimx) || (new_grid_h != gps.dimy)) {
+		if ((new_grid_w != grid_w) || (new_grid_h != grid_h)) {
 			gps_allocate(new_grid_w, new_grid_h);
-			makegrid();
-			screen_underlay_reshape();
 		}
 
 		bool fullscreen = surface->flags & SDL_FULLSCREEN; // are we currently in fullscreen mode?
@@ -576,9 +688,9 @@ class renderer_glsl : public renderer {
 	 * Tile aspect ratio is handled in reshape()
 	 */
 	void zoom(double zoom) { // in - negative; out - positive
-		double g_ar = (double) gps.dimx / gps.dimy;
-		int new_grid_w = g_ar * zoom + gps.dimx;
-		int new_grid_h = zoom / g_ar + gps.dimy;
+		double g_ar = (double) grid_w / grid_h;
+		int new_grid_w = g_ar * zoom + grid_w;
+		int new_grid_h = zoom / g_ar + grid_h;
 
 		/* check if resulting Psz isn't excessively insane */
 		if (surface->w * surface->h / (new_grid_w * new_grid_h) < 4) {
@@ -601,18 +713,19 @@ class renderer_glsl : public renderer {
 
 		int new_grid_w, new_grid_h;
 		if (enabler.overridden_grid_sizes.size()) {
-			new_grid_w = gps.dimx;
-			new_grid_h = gps.dimy;
+			new_grid_w = grid_w;
+			new_grid_h = grid_h;
 		} else {
 			// approximately preserve existing zoom
-			new_grid_w = new_window_w / ( surface->w / gps.dimx );
-			new_grid_h = new_window_h / ( surface->h / gps.dimy );
+			new_grid_w = new_window_w / ( surface->w / grid_w );
+			new_grid_h = new_window_h / ( surface->h / grid_h );
 		}
 		do_snap_window = glsl_conf.snap_window;
 		reshape(new_grid_w, new_grid_h, new_window_w, new_window_h, toggle_fullscreen);
 	}
 
 	void dump_screen(const char *fname) {
+#if 0
 		std::ofstream f;
 		const int dimx = init.display.grid_x;
 		const int dimy = init.display.grid_y;
@@ -631,6 +744,7 @@ class renderer_glsl : public renderer {
 		f.write((char *)(screentexpos_cbr), dimx*dimy);
 		f.write((char *)(screen_underlay), 4*dimx*dimy);
 		f.close();
+#endif
 	}
 
 public:
@@ -646,7 +760,7 @@ public:
 		glClearColor(0.0, 0.5, 0.0, 1);
 		glClear(GL_COLOR_BUFFER_BIT);
 		update_vbos();
-		glDrawArrays(GL_POINTS, 0, gps.dimx * gps.dimy);
+		glDrawArrays(GL_POINTS, 0, grid_tile_count);
 		fputsGLError(stderr);
 		if (do_swap)
 			SDL_GL_SwapBuffers();
@@ -655,7 +769,7 @@ public:
 			dump_screen("screendump");
 	}
 	virtual void set_fullscreen() 			{ zoom(zoom_fullscreen); }
-	//rtual void swap_arrays() 				{ if (0) std::cerr<<"swap_arrays(): do not need.\n"; }
+	virtual void swap_arrays() 				{ screen_underlay_update(); }
 
 	virtual void zoom(zoom_commands cmd) {
 		switch (cmd) {
@@ -737,11 +851,12 @@ public:
 		do_snap_window = glsl_conf.snap_window;
 		do_stretch_tiles = !init.display.flag.has_flag(INIT_DISPLAY_FLAG_BLACK_SPACE);
 		texture_filter = init.window.flag.has_flag(INIT_WINDOW_FLAG_TEXTURE_LINEAR) ? GL_LINEAR : GL_NEAREST;
+		grid = NULL;
+		screen = NULL;
 
 		char sdl_videodriver[256];
 		if (NULL == SDL_VideoDriverName(sdl_videodriver, sizeof(sdl_videodriver)))
-			/* wtf?? SDL_Init has not been called */
-			return;
+			exit(EXIT_FAILURE);
 
 		do_reset_glcontext =  (strncmp(sdl_videodriver, "x11", 3) != 0);
 
@@ -803,8 +918,8 @@ public:
 	virtual bool get_mouse_coords(int &x, int &y) {
 		int mouse_x, mouse_y;
 		SDL_GetMouseState(&mouse_x, &mouse_y);
-		x = (mouse_x - viewport_offset_x) / (Pszx * gps.dimx);
-		y = (mouse_y - viewport_offset_y) / (Pszy * gps.dimy);
+		x = (mouse_x - viewport_offset_x) / (Pszx * grid_w);
+		y = (mouse_y - viewport_offset_y) / (Pszy * grid_h);
 		return true;
 	}
 	virtual bool uses_opengl() {

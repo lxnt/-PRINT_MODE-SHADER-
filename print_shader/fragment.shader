@@ -5,12 +5,13 @@ uniform sampler2D font;
 uniform vec2 txsz;              // tile size in texels
 uniform float final_alpha;
 uniform vec3 pszar;             // { Parx, Pary, Psz }
+// Total 6 uniform floats, 1 sampler
 
 varying vec4 fg_color;          // tile: computed foreground color
 varying vec4 bg_color;          // tile: computed background color
 varying vec4 cf_color;          // creature: computed foreground color
-varying vec4 cb_color;          // creature: computed foreground color
-varying vec4 texoffset;         // tile and creature offset into font texture
+varying vec4 cb_color;          // creature: computed background color
+varying vec4 texoffset;         // tile and creature offsets into font texture
 
 void main() { // final touch
     vec2 pc = gl_PointCoord/pszar.xy;
@@ -33,11 +34,9 @@ void main() { // final touch
         /* blend  creature with its fg&bg colors */
         //vec4 c_color = mix(crea_color*cf_color, cb_color, 1-crea_color.a);
     
-        if (crea_color.a < 0.9) {
-            crea_color = vec4(0,0,0,0);
+        if (crea_color.a > 0.99) {
+            gl_FragColor = mix(t_color, crea_color, 1-crea_color.a);
         }
-    /* attempt to not completely overwrite the tile with the creature */
-        gl_FragColor = mix(crea_color, t_color, 1-crea_color.a);
     } else {
         gl_FragColor = t_color;
     }

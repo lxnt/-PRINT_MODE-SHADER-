@@ -18,7 +18,8 @@ uniform sampler1D ansi;
 uniform vec2 txsz;              // { w_tiles, h_tiles }
 uniform vec2 viewpoint;			
 uniform vec3 pszar; 			// { parx, pary, psz }
-   
+// Total 7 float values, 1 sampler
+
 attribute vec4 screen;          // { ch, fg, bg, bold } 
 attribute float texpos;         //  tile_tex_idx 
 attribute float addcolor;
@@ -26,12 +27,14 @@ attribute float grayscale;
 attribute float cf;
 attribute float cbr;
 attribute vec2 position;        // almost forgot teh grid
+// Total 7 attributes  = 13 float values 
 
 varying vec4 fg_color;          // tile: computed foreground color
 varying vec4 bg_color;          // tile: computed background color
 varying vec4 cf_color;          // creature: computed foreground color
 varying vec4 cb_color;          // creature: computed foreground color
 varying vec4 texoffset;         // tile and creature's offset into font texture
+// Total 5 texcoords  = 20 varying floats
 
 vec2 ansiconvert(vec3 c) { // { fg, bg, bold }
     

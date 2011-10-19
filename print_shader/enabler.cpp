@@ -140,7 +140,6 @@ enablerst::enablerst() {
   fps_per_gfps = fps / gfps;
   last_tick = 0;
 }
-int last_dump = 0;
 void renderer::display()
 {
   const int dimx = init.display.grid_x;
@@ -184,30 +183,6 @@ void renderer::display()
     }
   }
   if (gps.force_full_display_count > 0) gps.force_full_display_count--;
-#if 0
-  if (last_dump % 5 == 0)
-	  dump_screen("screendump");
-  last_dump++;
-#endif
-}
-
-
-void renderer::dump_screen(const char *fname) {
-	std::ofstream f;
-	const int dimx = init.display.grid_x;
-	const int dimy = init.display.grid_y;
-
-	f.open(fname, std::ios::app | std::ios::binary);
-	f.write((char *)(&dimx), sizeof(dimx));
-	f.write((char *)(&dimy), sizeof(dimy));
-	f.write((char *)(screen), 4*dimx*dimy);
-	f.write((char *)(screentexpos), sizeof(long)*dimx*dimy);
-	f.write((char *)(screentexpos_addcolor), dimx*dimy);
-	f.write((char *)(screentexpos_grayscale), dimx*dimy);
-	f.write((char *)(screentexpos_cf), dimx*dimy);
-	f.write((char *)(screentexpos_cbr), dimx*dimy);
-	f.close();
-	std::cout<<"Dumped "<<(12*dimx*dimx)<<" bytes, size "<<dimx<<"x"<<dimy<<" tiles\n";
 }
 
 void renderer::gps_allocate(int x, int y) {
@@ -999,3 +974,5 @@ void curses_text_boxst::add_paragraph(stringvectst &src,int32_t para_width)
 	//FLUSH FINAL BIT
 	if(!curstr.empty())text.add_string(curstr);
 }
+
+
