@@ -1,8 +1,10 @@
-extern GLchar _binary____fragment_shader_end;
-extern GLchar _binary____fragment_shader_start;
-extern GLchar _binary____vertex_shader_end;
-extern GLchar _binary____vertex_shader_start;
 
+extern "C" {
+	extern GLchar binary_fragment_shader_end;
+	extern GLchar binary_fragment_shader_start;
+	extern GLchar binary_vertex_shader_end;
+	extern GLchar binary_vertex_shader_start;
+}
 
 extern texdumpst texdumper;
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -378,8 +380,8 @@ class renderer_glsl : public renderer {
 			v_src[v_len] = 0;
 		} else {
 			fprintf(stderr, "Using embedded vertex shader code.\n");
-			v_len = &_binary____vertex_shader_end - &_binary____vertex_shader_start;
-			v_src = &_binary____vertex_shader_start;
+			v_len = &binary_vertex_shader_end - &binary_vertex_shader_start;
+			v_src = &binary_vertex_shader_start;
 		}
 		f.open(glsl_conf.fs_path.c_str(), ios::binary);
 		if (f.is_open()) {
@@ -393,8 +395,8 @@ class renderer_glsl : public renderer {
 			f_src[f_len] = 0;
 		} else {
 			fprintf(stderr, "Using embedded fragment shader code.\n");
-			f_len = &_binary____fragment_shader_end - &_binary____fragment_shader_start;
-			f_src = &_binary____fragment_shader_start;
+			f_len = &binary_fragment_shader_end - &binary_fragment_shader_start;
+			f_src = &binary_fragment_shader_start;
 		}
 		const GLchar * v_srcp[1] = { v_src };
 		const GLchar * f_srcp[1] = { f_src };
@@ -498,7 +500,7 @@ class renderer_glsl : public renderer {
 			{ 20, GL_MAX_VARYING_FLOATS, "GL_MAX_VARYING_FLOATS" }, // 4 varying_floats = 1 texture_coord?
 			{  5, GL_MAX_TEXTURE_COORDS, "GL_MAX_TEXTURE_COORDS" }, // 1 texture_coord = 4 varying_floats?
 			{ -4, GL_POINT_SIZE_MIN, "GL_POINT_SIZE_MIN" },
-			{ 96, GL_POINT_SIZE_MAX, "GL_POINT_SIZE_MAX" }, // no idea of our requirements
+			{ 63, GL_POINT_SIZE_MAX, "GL_POINT_SIZE_MAX" }, // no idea of our requirements
 			{  },
 		}, *vp = _vp;
 		while (vp->name) {
@@ -522,7 +524,6 @@ class renderer_glsl : public renderer {
 		glDisable(GL_DEPTH_TEST);
 		glDepthMask(GL_FALSE);
 		glEnable(GL_POINT_SPRITE);
-		glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
 		glEnable(GL_PROGRAM_POINT_SIZE);
 
 		fputsGLError(stderr);
