@@ -32,7 +32,7 @@ void main() { // final touch
         vec4 crea_color = texture2D(font, texcoords.zw);
         
         /* blend  creature with its fg&bg colors */
-        //vec4 c_color = mix(crea_color*cf_color, cb_color, 1-crea_color.a);
+        crea_color = mix(crea_color*cf_color, cb_color, 1-crea_color.a);
     
         if (crea_color.a > 0.99) {
             gl_FragColor = mix(t_color, crea_color, 1-crea_color.a);

@@ -522,6 +522,9 @@ class renderer_glsl : public renderer {
 		glDisable(GL_DEPTH_TEST);
 		glDepthMask(GL_FALSE);
 		glEnable(GL_POINT_SPRITE);
+		glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
+		glEnable(GL_PROGRAM_POINT_SIZE);
+
 		fputsGLError(stderr);
 		shader_setup();
 		fputsGLError(stderr);
