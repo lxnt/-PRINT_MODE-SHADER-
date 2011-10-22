@@ -1,9 +1,11 @@
 
+#define SCMANGLE(vors,sore) _binary____##vors##_shader_##sore
+
 extern "C" {
-	extern GLchar binary_fragment_shader_end;
-	extern GLchar binary_fragment_shader_start;
-	extern GLchar binary_vertex_shader_end;
-	extern GLchar binary_vertex_shader_start;
+	extern GLchar SCMANGLE(fragment, end);
+	extern GLchar SCMANGLE(fragment, start);
+	extern GLchar SCMANGLE(vertex, end);
+	extern GLchar SCMANGLE(vertex, start);
 }
 
 extern texdumpst texdumper;
@@ -144,7 +146,6 @@ class renderer_glsl : public renderer {
 			}
 #endif
 	}
-
 	virtual void gps_allocate(int x, int y) {
 		fprintf(stderr, "gps_allocate(%d, %d)\n", x, y);
 		ulod_allocate(x, y);
@@ -380,8 +381,8 @@ class renderer_glsl : public renderer {
 			v_src[v_len] = 0;
 		} else {
 			fprintf(stderr, "Using embedded vertex shader code.\n");
-			v_len = &binary_vertex_shader_end - &binary_vertex_shader_start;
-			v_src = &binary_vertex_shader_start;
+			v_len = &SCMANGLE(vertex, end) - &SCMANGLE(vertex, start);
+			v_src = &SCMANGLE(vertex, start);
 		}
 		f.open(glsl_conf.fs_path.c_str(), ios::binary);
 		if (f.is_open()) {
@@ -395,8 +396,8 @@ class renderer_glsl : public renderer {
 			f_src[f_len] = 0;
 		} else {
 			fprintf(stderr, "Using embedded fragment shader code.\n");
-			f_len = &binary_fragment_shader_end - &binary_fragment_shader_start;
-			f_src = &binary_fragment_shader_start;
+			f_len = &SCMANGLE(fragment, end) - &SCMANGLE(fragment, start);
+			f_src = &SCMANGLE(fragment, start);
 		}
 		const GLchar * v_srcp[1] = { v_src };
 		const GLchar * f_srcp[1] = { f_src };
@@ -417,9 +418,11 @@ class renderer_glsl : public renderer {
 		glCompileShader(v_sh);
 		if (!shader_status(v_sh, GL_COMPILE_STATUS))
 			exit(1);
+
 		glCompileShader(f_sh);
 		if (!shader_status(f_sh, GL_COMPILE_STATUS))
 			exit(1);
+
 		fputsGLError(stderr);
 
 		glLinkProgram(shader);
@@ -525,6 +528,10 @@ class renderer_glsl : public renderer {
 		glDepthMask(GL_FALSE);
 		glEnable(GL_POINT_SPRITE);
 		glEnable(GL_PROGRAM_POINT_SIZE);
+		glDisable(GL_POINT_SMOOTH);
+		GLint param = GL_UPPER_LEFT;
+		glPointParameteriv(GL_POINT_SPRITE_COORD_ORIGIN, &param);
+
 
 		fputsGLError(stderr);
 		shader_setup();
@@ -883,7 +890,7 @@ public:
 				enabler.fullscreen = false;
 			}
 			if (modes == (SDL_Rect **)-1)
-				; // now, wtf we're going to do?
+				; // now, wtf we're going to do? what's ANY mode?
 			else {
 				goodmode = modes[0];
 				for (int i=1; modes[i]; ++i) {
