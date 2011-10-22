@@ -442,6 +442,10 @@ class renderer_glsl : public renderer {
 		glUseProgram(shader);
 		fputsGLError(stderr);
 
+		glDeleteShader(v_sh); // mark for deletion
+		glDeleteShader(f_sh);
+		fputsGLError(stderr);
+
 		unif_loc[FONT_SAMPLER]	= glGetUniformLocation(shader, "font");
 		unif_loc[ANSI_SAMPLER]	= glGetUniformLocation(shader, "ansi");
 		unif_loc[TXSZ]			= glGetUniformLocation(shader, "txsz");
@@ -479,6 +483,13 @@ class renderer_glsl : public renderer {
 		glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
 		fputsGLError(stderr);
 		/* note: TXSZ and POINTSIZE/PAR are not bound yet. */
+	}
+	void reload_shaders() {
+		glDeleteProgram(shader); // frees all the stuff
+		shader_setup();
+		do_update_attrs = true;
+		glUniform2f(unif_loc[TXSZ], txsz_w, txsz_h);
+		reshape(grid_w, grid_h); // update PSZAR
 	}
 	void set_viewport() {
 		fprintf(stderr, "set_viewport(): got %dx%d out of %dx%d\n",
@@ -793,7 +804,7 @@ class renderer_glsl : public renderer {
 public:
 	virtual void display() 					{ if (0) std::cerr<<"display(): do not need.\n"; }
 	virtual void update_tile(int x, int y)  { if (1) std::cerr<<"update_tile(): do not need.\n"; }
-	virtual void update_all() 				{ if (1) std::cerr<<"update_all(): do not need.\n"; }
+	virtual void update_all() 				{ reload_shaders(); } // ugly overload :)
 	virtual void render() {
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_1D, tex_id[ANSI]);

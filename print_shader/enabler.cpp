@@ -457,6 +457,12 @@ void enablerst::eventLoop_SDL()
           SDL_ShowCursor(SDL_DISABLE);
         }
       case SDL_KEYUP:
+          if (event.key.keysym.sym == SDLK_F12) {
+          	// hardcoded to reset shaders for now.
+        	if (event.type == SDL_KEYUP)
+        		renderer->update_all();
+          	break;
+          }
       case SDL_QUIT:
         enabler.add_input(event, now);
         break;

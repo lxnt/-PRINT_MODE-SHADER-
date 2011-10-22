@@ -89,8 +89,6 @@ Project needs:
 What next?
 ==========
 
- - fix the zoom/resize functionality, test with movies too.
- 
  - remove 16x16 limit for graphics/tile sets. I intend to 
    fully decouple fonts and graphics, the only requirement
    left would be that all graphics are of same size, not 
