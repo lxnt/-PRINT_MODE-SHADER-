@@ -107,8 +107,10 @@ void initst::begin()
 					{
 					display.desired_fullscreen_height=convert_string_to_long(token2);
 					}
-				if (token=="DUMP_SCREEN")
-					glsl_conf.dump_screen = convert_string_to_long(token2);
+				if (token=="DUMP_STUFF")
+					glsl_conf.dump_stuff = convert_string_to_long(token2);
+				if (token=="DUMP_TO")
+					glsl_conf.dump_pfx = token2;
 				if (token=="VERTEX_SHADER")
 					glsl_conf.vs_path = token2;
 				if (token=="FRAGMENT_SHADER")

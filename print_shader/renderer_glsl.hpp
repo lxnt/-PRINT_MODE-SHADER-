@@ -1,3 +1,5 @@
+#include "zlib.h"
+#include "IMG_savepng.h"
 
 #define SCMANGLE(vors,sore) _binary____##vors##_shader_##sore
 
@@ -66,9 +68,12 @@ class renderer_glsl : public renderer {
 	int Pszx, Pszy;				// Point sprite size as drawn
 	SDL_Surface *surface;
 
+	int texture_generation;     // screen dumper
+	void *dump_buffer;          // internals
+
 	unsigned char *screen; // ULoD: an ugly lump of data.
 	GLsizeiptr screen_bo_size;
-	struct {
+	struct _bo_offset {
 		GLsizei screen; // should be 0 at all times, but ...
 		GLsizei underlay;
 		GLsizei texpos;
@@ -301,8 +306,9 @@ class renderer_glsl : public renderer {
 		fputsGLError(stderr);
 		fprintf(stderr, "accepted font texture (name=%d): %dx%dpx oa\n",
 				tex_id[FONT], cats->w, cats->h);
-		if (glsl_conf.dump_screen > 0)
-			texdumper.dump();
+		if (glsl_conf.dump_stuff > 0)
+			dump_texture(cats);
+		texture_generation ++;
 		texture_ready = true;
 		if (reshape_required)
 			reshape();
@@ -714,7 +720,6 @@ class renderer_glsl : public renderer {
 
 		reshape(new_grid_w, new_grid_h);
 	}
-
 	void resize(int new_window_w, int new_window_h, bool toggle_fullscreen = false) {
 		/* here so we don't duplicate code for the fullscreen case */
 		if (   (new_window_w == surface->w)
@@ -735,27 +740,55 @@ class renderer_glsl : public renderer {
 		reshape(new_grid_w, new_grid_h, new_window_w, new_window_h, toggle_fullscreen);
 	}
 
-	void dump_screen(const char *fname) {
-#if 0
-		std::ofstream f;
-		const int dimx = init.display.grid_x;
-		const int dimy = init.display.grid_y;
+	void dump_texture(SDL_Surface *cats) {
+		char fname[4096];
+		snprintf(fname, 4096, "%s%04d.png", glsl_conf.dump_pfx.c_str(), texture_generation);
+		IMG_SavePNG(fname, cats, 9);
+		fprintf(stderr,"dump_texture: %dx%d pixels went to %s\n", cats->w, cats->h, fname);
+	}
+	void dump_screen() {
+		char fname[4096];
+		snprintf(fname, 4096, "%s.sdump", glsl_conf.dump_pfx.c_str());
 
-		f.open(fname, std::ios::app | std::ios::binary);
-		f.write((char *)(&dimx), sizeof(dimx));
-		f.write((char *)(&dimy), sizeof(dimy));
-		f.write((char *)(&surface->w), sizeof(surface->w));
-		f.write((char *)(&surface->h), sizeof(surface->h));
-		f.write((char *)(screen), 4*dimx*dimy);
-		f.write((char *)(screentexpos), sizeof(long)*dimx*dimy);
-		f.write((char *)(screentexpos_addcolor), dimx*dimy);
-		f.write((char *)(screentexpos_grayscale), dimx*dimy);
-		f.write((char *)(screentexpos_cf), dimx*dimy);
-		f.write((char *)(screentexpos_cbr), dimx*dimy);
-		f.write((char *)(screentexpos_cbr), dimx*dimy);
-		f.write((char *)(screen_underlay), 4*dimx*dimy);
+		if (!dump_buffer)
+			dump_buffer = malloc(sizeof_screen);
+
+		struct _dump_header {
+			struct _bo_offset bo_offset;
+			size_t data_len; // compressed data size that follows this struct
+			GLint grid_w, grid_h;		// and again in tiles
+			int Pszx, Pszy;				// Point sprite size as drawn
+			int viewport_offset_x, viewport_offset_y; // viewport tracking
+			int viewport_w, viewport_h;               // for mouse coordinate transformation
+			int surface_w, surface_h;		// window dimensions
+			GLint txsz_w, txsz_h; 		// texture size in tiles
+			GLint tile_w, tile_h;		// tile size in texels
+			int frame_number;
+			int texture_generation;    // which of texdumpNNNN.png the above refer to
+		} hdr;
+
+		memmove(&hdr.bo_offset, &bo_offset, sizeof(struct _bo_offset));
+		hdr.grid_w = grid_w; hdr.grid_h = grid_h;
+		hdr.Pszx = Pszx; hdr.Pszy = Pszy;
+		hdr.surface_w = surface->w; hdr.surface_h = surface->h;
+		hdr.txsz_w = txsz_w; hdr.txsz_h = txsz_h;
+		hdr.tile_w = tile_w; hdr.tile_h = tile_h;
+		hdr.texture_generation = texture_generation;
+		hdr.frame_number = f_counter;
+
+		uLongf destLen = sizeof_screen;
+		uLong sourceLen = screen_bo_size;
+		int z_ok = compress((unsigned char *)dump_buffer, &destLen, screen,  sourceLen);
+		if (z_ok != Z_OK) {
+			fprintf(stderr, "compress2(): %d\n", z_ok);
+			return;
+		}
+		hdr.data_len = destLen;
+		std::ofstream f(fname, std::ios::app | std::ios::binary);
+		f.write((char *)(&hdr), sizeof(struct _dump_header));
+		f.write((char *)(dump_buffer), destLen);
 		f.close();
-#endif
+		fprintf(stderr, "dump_screen(): frame %d: %d bytes\n", f_counter, destLen + sizeof(struct _dump_header));
 	}
 
 public:
@@ -776,8 +809,8 @@ public:
 		if (do_swap)
 			SDL_GL_SwapBuffers();
 		f_counter ++;
-		if ((glsl_conf.dump_screen > 0) && (f_counter % glsl_conf.dump_screen == 0))
-			dump_screen("screendump");
+		if ((glsl_conf.dump_stuff > 0) && (f_counter % glsl_conf.dump_stuff == 0))
+			dump_screen();
 	}
 	virtual void set_fullscreen() 			{ zoom(zoom_fullscreen); }
 	virtual void swap_arrays() 				{ screen_underlay_update(); }
@@ -864,6 +897,8 @@ public:
 		texture_filter = init.window.flag.has_flag(INIT_WINDOW_FLAG_TEXTURE_LINEAR) ? GL_LINEAR : GL_NEAREST;
 		grid = NULL;
 		screen = NULL;
+		texture_generation = 0;
+		dump_buffer = NULL;
 
 		char sdl_videodriver[256];
 		if (NULL == SDL_VideoDriverName(sdl_videodriver, sizeof(sdl_videodriver)))
@@ -890,7 +925,7 @@ public:
 				enabler.fullscreen = false;
 			}
 			if (modes == (SDL_Rect **)-1)
-				; // now, wtf we're going to do? what's ANY mode?
+				8; // now, wtf we're going to do? what's ANY mode?
 			else {
 				goodmode = modes[0];
 				for (int i=1; modes[i]; ++i) {
@@ -937,4 +972,9 @@ public:
 		bool very_true = true;
 		return true && very_true;
 	}
+	virtual ~renderer_glsl() {
+		if (grid) free(grid);
+		if (screen) free(screen);
+		if (dump_buffer) free(dump_buffer);
+ 	}
 };

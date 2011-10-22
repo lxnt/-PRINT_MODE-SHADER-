@@ -73,11 +73,11 @@ init.txt tokens specific to this renderer:
 [PRINT_MODE:SHADER] - enables the renderer 
 [VERTEX_SHADER:data/vertex.shader] - override embedded shader code
 [FRAGMENT_SHADER:data/fragment.shader] - same for fragment shader
-[DUMP_SCREEN:0] - control screen and texture dumping.
+[DUMP_STUFF:0] - control screen and texture dumping.
     0 - no dumping
     N - dumps texture on upload to the GPU, 
         dumps complete screen data every Nth frame
-
+[DUMP_TO:blahblah] - sets prefix for dumps. Default: "dfdump"
 
 Project needs:
 ==============
@@ -182,14 +182,19 @@ Running it on x86_64 system.
 
 export LIBGL_DRIVERS_PATH=/usr/lib32/dri-alternates
 
-into the ./df script.
-
+into the ./df script. This selects classic Mesa (non-Gallium)
+drivers. Gallium ones that ship with Ubuntu ia32-libs are outdated
+and do not contain needed bugfixes.
 
 2. You can delete/rename  libstdc++.so.6 and libgcc_s.so.1
 that are in df_linux/libs directory - system ones work fine,
-and might have some improvements made since the shipped ones
+and might have some improvements made after the shipped ones
 were compiled.
 
-   
-   
- 
+
+
+
+
+
+
+

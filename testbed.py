@@ -1,5 +1,5 @@
 
-import sys, time, math, struct, io, ctypes
+import sys, time, math, struct, io, ctypes, zlib, collections
 from random import random as rnd
 import pygame
 	
@@ -10,24 +10,7 @@ from OpenGL.GLU import *
 
 import numpy as np
 
-def loadtex(fname):
-    glMatrixMode(GL_TEXTURE)
-    glLoadIdentity()
-    glMatrixMode(GL_MODELVIEW)
-    
-    texture_id = glGenTextures(1)
-    surface = pygame.image.load(fname)
-    surface.convert_alpha()
-    stuff = pygame.image.tostring(surface, "RGBA")
-    glBindTexture(GL_TEXTURE_2D, texture_id)
-    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, surface.get_width(), surface.get_height(), 
-        0, GL_RGBA, GL_UNSIGNED_BYTE, stuff )
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-    return (texture_id, surface.get_width(), surface.get_height() )
-    
+   
 def rgba32f():
     tid = glGenTextures(1)
     glBindTexture(GL_TEXTURE_2D, tid)
@@ -36,68 +19,130 @@ def rgba32f():
     print glGetInteger(GL_MAX_TEXTURE_UNITS)
     print glGetInteger(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS)
 
-VERTEX_SHADERZOR = file("vertex.shader").read()
-FRAGMENT_SHADERZOR = file("fragment.shader").read()
+VERTEX_SHADERZOR = file("print_shader/vertex.shader").read()
+FRAGMENT_SHADERZOR = file("print_shader/fragment.shader").read()
 
-class Frame(dict):
+class EndOfFile(Exception):
     pass
-class FindexError(Exception):
-    pass
-class FrameLoader(object):
+
+class Frame(object):
+    class _bo_offset(object):
+        def __init__(args):
+            self.screen = args[0]
+            self.underlay = args[1]
+            self.texpos = args[2]
+            self.addcolor = args[3]
+            self.grayscale = args[4]
+            self.cf = args[5]
+            self.cbr = args[6]
+            
+    s_hdr = struct.Struct(
+            "7i" #  _bo_offset
+          +  "i" #  data_len
+          + "2i" #  grid w/h
+          + "2i" #  Pszx, Pszy
+          + "2i" #  viewport_offset_x, viewport_offset_y
+          + "2i" #  viewport_w, viewport_h
+          + "2i" #  surface_w, surface_h
+          + "2i" #  txsz_w, txsz_h
+          + "2i" #  tile_w, tile_h
+          +  "i" #  frame_number
+          +  "i" #  texture_generation
+    )
+          
+    def __init__(self, fd):
+        b = fd.read(self.s_hdr.size)
+        if len(b) != self.s_hdr.size:
+            raise EndOfFile
+        d = list(self.s_hdr.unpack(b))
+        self.bo = _bo_offset(d[:7])
+        self.data_len = d[8]
+        self.grid_w, self.grid_h = d[9:10]
+        self.Pszx, self.Pszy = d[11:12]
+        self.viewport_offset_x, self.viewport_offset_y = d[13:14]
+        self.surface_w, surface_h = d[15:16]
+        self.txsz_w, txsz_h = d[17:18]
+        self.tile_w, tile_h = d[19:20]
+        self.frame_number = d[21]
+        self.texture_generation = d[22]
+        self.data_offs = fd.tell()
+        self.data = None
+        self.fd = fd
+        
+    def _read_data(self):
+        self.fd.seek(self.data_offs)
+        d = self.fd.read(self.data_len)
+        if d != self.data_len:
+            raise EndOfFile
+        self.data = zlib.decompress(d)
+    
+    def buf(self):
+        if not self._buffer:
+            if not self.data:
+                self._read_data()
+            self._buffer = buffer(self.data)
+        return self._buffer
+    
+    def nparrays(self):
+        if not self.data:
+            self._read_data()        
+        tilecount = self.grid_h * self.grid_w
+        class _npa_bunch(object):
+            pass
+        rv = _npa_bunch()
+        rv.screen    = np.fromfile(buffer(self.data, self.bo.screen),    np.uint8,  tilecount * 4)
+        rv.underlay  = np.fromfile(buffer(self.data, self.bo.underlay),  np.uint8,  tilecount * 4)
+        rv.texpos    = np.fromfile(buffer(self.data, self.bo.texpos),    np.uint32, tilecount    )
+        rv.addcolor  = np.fromfile(buffer(self.data, self.bo.addcolor),  np.uint8,  tilecount    )
+        rv.grayscale = np.fromfile(buffer(self.data, self.bo.grayscale), np.uint8,  tilecount    )
+        rv.cf        = np.fromfile(buffer(self.data, self.bo.cf),        np.uint8,  tilecount    )
+        rv.cbr       = np.fromfile(buffer(self.data, self.bo.cbr),       np.uint8,  tilecount    )
+        return rv
+
+class StuffDump(collections.Sequence):
     def __init__(self, fname):
         self.frames = []
+        self.textures = []
         self.fd = file(fname, 'rb' )
         self.framecount = None
-        self._sizeof_tile = 4+4+1+1+1+1 
-        
-    def frame(self, frame_i):
-        if self.framecount and frame_i > self.framecount - 1:
-            raise FindexError
-        if (len(self.frames) <= frame_i) or (self.frames[frame_i] is None):
-            self._load_frame(frame_i)
+        self._build_index()
+        print "FrameLoader(): {0} frames indexed\n".format(len(self.frames))
+
+    def _build_index(self):
+        while True:
+            try:
+                f = Frame(fd)
+                last_tex_gen = f.texture_generation
+                self.index.append()
+            except EndOfFile:
+                break
+        self._load_textures(last_tex_gen)
+    
+    def __len__(self):
+        return len(self.frames)
+
+    def __getitem__(self, frame_i):
         return self.frames[frame_i]
-            
-    def _load_frame(self, frame_i):
-        """ loads frames up to frame_i """
-        if (len(self.frames) <= frame_i):
-            for i in xrange(frame_i - len(self.frames) + 1):
-                self.frames.append(None)
-        posn = 0
-        for idx in xrange(len(self.frames)):
-            frame = self.frames[idx]
-            if frame is None:         
-                self.fd.seek(posn)
-                frame = Frame()
-                fheader = self.fd.read(8)
-                if len(fheader) < 8: # EOF
-                    self.framecount = idx
-                    raise FindexError
-                    
-                frame.wt,frame.ht,frame.wpx,frame.hpx = struct.unpack("iiii", fheader)
-                tilecount = frame.wt * frame.ht
-                frame.update({
-                    "screen":           ( np.fromfile(self.fd, np.uint8,  tilecount * 4), 4, GL_UNSIGNED_BYTE, 0),
-                    "texpos":           ( np.fromfile(self.fd, np.uint32, tilecount), 1, GL_UNSIGNED_INT, 0),
-                    "addcolor":         ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0),
-                    "grayscale":        ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0),
-                    "cf":               ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0),
-                    "cbr":              ( np.fromfile(self.fd, np.uint8,  tilecount), 1, GL_UNSIGNED_BYTE, 0),
-                    "screen_underlay":  ( np.fromfile(self.fd, np.uint32,  tilecount), 1, GL_UNSIGNED_INT, 0),
-                })
-                self.frames[idx] = frame
-                print "frame {0}, tile(0,0) = {1} fg={2} bg={3} bold={4}".format(idx, 
-                    frame["screen"][0][0], 
-                    frame["screen"][0][1], 
-                    frame["screen"][0][2], 
-                    frame["screen"][0][3] )
 
-            else:
-                tilecount = frame.w * frame.h
-            
-            posn += 8 + tilecount * self._sizeof_tile
-            idx += 1
-
+    def loadtex(fprefix, gen, filter=GL_LINEAR):
+        fname = "{0}{1:04d}.png".format(fprefix, gen)
+        glMatrixMode(GL_TEXTURE)
+        glLoadIdentity()
+        glMatrixMode(GL_MODELVIEW)
         
+        texture_id = glGenTextures(1)
+        surface = pygame.image.load(fname)
+        surface.convert_alpha()
+        stuff = pygame.image.tostring(surface, "RGBA")
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, surface.get_width(), surface.get_height(), 
+            0, GL_RGBA, GL_UNSIGNED_BYTE, stuff )
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter)
+        return (texture_id, surface.get_width(), surface.get_height())
+
 class rednener(object):
     def __init__(self, fonttex, loader):
         self.snap_to_grid = False

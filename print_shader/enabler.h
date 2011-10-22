@@ -761,25 +761,25 @@ struct texdumpst {
 	SDL_Surface *cats;
 	int count, w_t, h_t, limit;
 	Uint16 w, h, t_w, t_h;
-	int dumpcount;
 	bool finished;
 	texdumpst();
 	bool init(int rawcount, Uint16, Uint16);
 	bool add(SDL_Surface *tex, long pos);
-	void dump();
 	SDL_Surface *get();
 };
 
 struct glsl_configst {
-	long dump_screen;
+	long dump_stuff;
 	std::string vs_path;
 	std::string fs_path;
+	std::string dump_pfx;
 	bool snap_window;
 
 	glsl_configst() {
-		dump_screen = 0;
+		dump_stuff = 0;
 		vs_path = "";
 		fs_path = "";
+		dump_pfx = "dfdump";
 		snap_window = 0;
 	}
 };

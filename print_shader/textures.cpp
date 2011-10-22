@@ -3,7 +3,6 @@
 
 #include "enabler.h"
 #include "init.h"
-#include "IMG_savepng.h"
 
 // Used to sort textures
 struct vsize_pos {
@@ -36,7 +35,6 @@ bool testTextureSize(GLuint texnum, int w, int h) {
 }
 
 texdumpst::texdumpst() {
-	dumpcount = 0;
 	cats = NULL;
 }
 
@@ -112,18 +110,6 @@ bool texdumpst::add(SDL_Surface *tex, long pos) {
 	return true;
 }
 
-void texdumpst::dump() {
-	if (!cats)
-		return;
-	char fname[4096];
-	sprintf(fname, "texdump%04d.png", dumpcount);
-	IMG_SavePNG(fname, cats, 9);
-	SDL_FreeSurface(cats);
-	cats = NULL;
-	dumpcount++;
-	std::cout<<"texdumpst::dump(): Wrote "<<fname<<", "<<count<<" textures.\n";
-}
-
 SDL_Surface *texdumpst::get() {
 	std::cerr<<"handed off cats with "<<count<<" tiles. ("<<w_t<<"x"<<h_t<<").\n";
 	return cats;
@@ -135,7 +121,7 @@ texdumpst texdumper;
 void textures::upload_textures() {
   if (init.display.flag.has_flag(INIT_DISPLAY_FLAG_SHADER)) {
 	  long pos = 0;
-	  texdumper.init(raws.size(), 16, 16);  //FIXME: hardcoded tile size
+	  texdumper.init(raws.size(), raws[0]->w, raws[0]->h); // tile size defined by the first raw: usually chr(0)
 	  for (std::vector<SDL_Surface *>::iterator it = raws.begin(); it != raws.end(); ++it) {
 		  if (*it)
 			texdumper.add(*it, pos);
