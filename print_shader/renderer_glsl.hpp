@@ -800,7 +800,7 @@ public:
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, tex_id[FONT]);
 		glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
-		glClearColor(0.0, 0.5, 0.0, 1);
+		glClearColor(0.0, 0.0, 0.0, 1);
 		glClear(GL_COLOR_BUFFER_BIT);
 		update_vbos();
 		glDrawArrays(GL_POINTS, 0, grid_tile_count);

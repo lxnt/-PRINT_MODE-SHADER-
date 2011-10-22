@@ -13,13 +13,13 @@ Resources:
 Current state:
 ==============
 
-Game is playable. Zoom and resize do not work to my liking, but can
-be lived with. Graphics and tileset tile sizes are fixed to 16x16 pixels.
-Download link above points to a compressed libprint_shader.so (with full debug,
-that's why the size). Replace your libs/libgraphics.so with it to try this out.
+Game is playable. Graphics and tileset tile sizes are fixed to the size of first
+tile loaded, this always is the 0th character of the font (tileset).
 
 Creature rendering is currently broken.
 
+Download link above points to a compressed libprint_shader.so (with full debug,
+that's why the size). Replace your libs/libgraphics.so with it to try this out.
 
 System requirements:
 ====================
@@ -30,6 +30,7 @@ with open-source drivers from xorg-edgers repo.
 OpenGL renderer string: Mesa DRI R600 (RV770 9440) 
 20090101 x86/MMX+/3DNow!+/SSE2 TCL DRI2
 
+Now I develop it on Ubuntu Natty 64bit with stock drivers, same card.
 
 The code should work on anything that more-or-less supports GLSL 1.2
 Specific graphics hardware and driver requirements:
