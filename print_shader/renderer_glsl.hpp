@@ -65,7 +65,7 @@ class renderer_glsl : public renderer {
 	GLsizeiptr grid_bo_size;	// size of currently used BO
 	GLint grid_tile_count; 		// and in tiles
 	GLint grid_w, grid_h;		// and again in tiles
-	int Pszx, Pszy;				// Point sprite size as drawn
+	int Pszx, Pszy, Psz;		// Point sprite size as drawn
 	SDL_Surface *surface;
 
 	int texture_generation;     // screen dumper
@@ -627,6 +627,8 @@ class renderer_glsl : public renderer {
 		new_psz_x = ff * tile_w;
 		new_psz_y = ff * tile_h;
 
+		Psz = MAX(new_psz_x, new_psz_y);
+
 		/* Attempt to stuff some more tiles on the screen by enlarging grid
 		 * unless we're zooming in since that would be counterproductive.  */
 		if ( (!enabler.overridden_grid_sizes.size())
@@ -652,16 +654,14 @@ class renderer_glsl : public renderer {
 		Pszx = new_psz_x;
 		Pszy = new_psz_y;
 
+		GLfloat Parx = 1.0, Pary = 1.0;
 		if (Pszx > Pszy) {
-			GLfloat Parx = 1.0;
-			GLfloat Pary = (double)new_psz_y / (double)new_psz_x;
+			Pary = (double)new_psz_y / (double)new_psz_x;
 			glUniform3f(unif_loc[PSZAR], Parx, Pary, Pszx);
 		} else {
-			GLfloat Parx = (double)new_psz_x / (double)new_psz_y;
-			GLfloat Pary = 1.0;
+			Parx = (double)new_psz_x / (double)new_psz_y;
 			glUniform3f(unif_loc[PSZAR], Parx, Pary, Pszy);
 		}
-
 		/* viewport is the size of drawn grid in pixels, or alternatively,
 		 * the area in window that is actually drawn to
 		 */
@@ -704,19 +704,18 @@ class renderer_glsl : public renderer {
 	 * Zoom policy: we must maintain grid aspect ratio.
 	 * Tile aspect ratio is handled in reshape()
 	 */
-	void zoom(double zoom) { // in - negative; out - positive
-		double g_ar = (double) grid_w / grid_h;
-		int new_grid_w = g_ar * zoom + grid_w;
-		int new_grid_h = zoom / g_ar + grid_h;
-
-		/* check if resulting Psz isn't excessively insane */
-		if (surface->w * surface->h / (new_grid_w * new_grid_h) < 4) {
-			fprintf(stderr, "Zoom canceled: grid %dx%d psz %.02fx%0.2f",
-					new_grid_w, new_grid_h,
-					(double)surface->w/new_grid_w,
-					(double)surface->h/new_grid_h );
+	void zoom(int zoom) { // in - negative; out - positive
+		int new_psz = Psz + zoom;
+		if (new_psz < 2) // don't be ridiculous
 			return;
-		}
+
+		double t_ar = (double) tile_w / tile_h;
+
+		int new_psz_x =( tile_w > tile_h ? 1.0 : t_ar ) * new_psz;
+		int new_psz_y =( tile_w > tile_h ? 1.0/t_ar : 1.0 ) * new_psz;
+
+		int new_grid_w = surface->w/new_psz_x;
+		int new_grid_h = surface->h/new_psz_y;
 
 		reshape(new_grid_w, new_grid_h);
 	}
@@ -788,7 +787,7 @@ class renderer_glsl : public renderer {
 		f.write((char *)(&hdr), sizeof(struct _dump_header));
 		f.write((char *)(dump_buffer), destLen);
 		f.close();
-		fprintf(stderr, "dump_screen(): frame %d: %d bytes\n", f_counter, destLen + sizeof(struct _dump_header));
+		fprintf(stderr, "dump_screen(): frame %d: %ld bytes\n", f_counter, destLen + sizeof(struct _dump_header));
 	}
 
 public:
@@ -820,12 +819,12 @@ public:
 			case zoom_in:
 				if (enabler.overridden_grid_sizes.size())
 					return;
-				zoom(-init.input.zoom_speed);
+				zoom(-1);
 				break;
 			case zoom_out:
 				if (enabler.overridden_grid_sizes.size())
 					return;
-				zoom(init.input.zoom_speed);
+				zoom(1);
 				break;
 			case zoom_reset:
 				if (enabler.overridden_grid_sizes.size())
