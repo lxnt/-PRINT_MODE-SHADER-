@@ -771,18 +771,29 @@ struct texdumpst {
 };
 
 struct glsl_configst {
-	long dump_stuff;
-	std::string vs_path;
-	std::string fs_path;
-	std::string dump_pfx;
-	bool snap_window;
+	long dump_stuff;			// [DUMP_STUFF:0]
+	std::string dump_pfx;		// [DUMP_TO:]
+	std::string vs_path;		// [VERTEX_SHADER:]  external vertex shader code
+	std::string fs_path;		// [FRAGMENT_SHADER:] external fragment shader code
+	std::string shader_set;		// [SHADERSET:] embedded shader set name
+	bool snap_window;			// [SNAP_WINDOW:NO]  snap window to not leave black margins (resize only)
+	bool use_underlay;			// [USE_UNDERLAY:NO]  attempt to remember the floor tile under creatures
+	GLint texture_filter;		// [TEXTURE_PARAM:LINEAR]  default: NEAREST
+	bool stretch_tiles; 		// [GRAPHICS_BLACK_SPACE:NO] deform tiles to fill whole viewport when zooming/resizing
+	bool dump_creatures;		// [DUMP_CREATURES:NO] dump creature draw data to stderr
 
 	glsl_configst() {
 		dump_stuff = 0;
 		vs_path = "";
 		fs_path = "";
+		shader_set = "";
 		dump_pfx = "dfdump";
-		snap_window = 0;
+		snap_window = false;
+		use_underlay = false;
+		texture_filter = GL_NEAREST;
+		snap_window = false;
+		stretch_tiles = false;
+		dump_creatures = false;
 	}
 };
 

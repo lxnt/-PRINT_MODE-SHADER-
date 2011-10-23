@@ -80,11 +80,6 @@ class renderer_glsl : public renderer {
 	int viewport_offset_x, viewport_offset_y; // viewport tracking
 	int viewport_w, viewport_h;               // for mouse coordinate transformation
 
-	// configurable behavior
-	bool do_snap_window;  		// snap window size to match viewport when zooming/resizing
-	bool do_stretch_tiles; 		// deform tiles to fill whole viewport when zooming/resizing
-	GLint texture_filter;
-
 	// internal flags
 	bool do_reset_glcontext;    // if a full reset of opengl context is required after SDL_SetVideoMode()
 	bool do_swap; 				// if SDL_GL_Swap() is needed.
@@ -93,14 +88,12 @@ class renderer_glsl : public renderer {
 	bool texture_ready;			// if we've got a suitable tileset/font texture to work with.
 	bool reset_underlay;		// if underlay has to be reset, i.e. there was scrolling.
 
-#define DEBUG_CREABLEND 23
-#ifdef DEBUG_CREABLEND
 	Uint32 last_seen_ul, last_seen_crea;
 
 	inline Uint32 *tile_u32(int x, int y, int s) { return ((Uint32 *) (screen + s) + x*grid_h + y ); };
 	inline Uint32 *index_u32(int i, int s) { return ((Uint32 *) (screen + s) + i ); };
 	inline Uint8 *index_u8(int i, int s) { return ((Uint8 *) (screen + s) + i ); };
-#endif
+
 	/** screen_underlay. Contains a copy of screen with tiles that are
 	 * now under creatures not overwritten, if possible.
 	 * For that, just before next render_things (where game internals overwrite stuff in ULoD),
@@ -128,7 +121,8 @@ class renderer_glsl : public renderer {
 				*index_u32(i, bo_offset.underlay) = *index_u32(i, bo_offset.screen);
 
 			else {
-				record_crea(i);
+				if (glsl_conf.dump_creatures)
+					record_crea(i);
 #ifdef DEBUG_CREABLEND_TRACK
 				if ( *index_u32(i, bo_offset.underlay) != *index_u32(i, bo_offset.screen) ) {
 					Uint32 crea = *index_u32(i, bo_offset.underlay);
@@ -147,14 +141,7 @@ class renderer_glsl : public renderer {
 #endif
 			}
 	}
-#if 0
-	struct crea {
-		unsigned char screen[4];
-		long texpos;
-		unsigned char grayscale;
-		unsige
-	};
-#endif
+
 	void record_crea(int i) {
 		char c,g;
 		long texpos = *(long*)index_u32(i, bo_offset.texpos);
@@ -317,9 +304,9 @@ class renderer_glsl : public renderer {
 		fputsGLError(stderr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		fputsGLError(stderr);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, texture_filter);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, glsl_conf.texture_filter);
 		fputsGLError(stderr);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, texture_filter);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, glsl_conf.texture_filter);
 		fputsGLError(stderr);
 		bool reshape_required = (  (tile_w != texdumper.t_w) || (tile_h != texdumper.t_h) );
 		txsz_w = texdumper.w_t;
@@ -398,7 +385,11 @@ class renderer_glsl : public renderer {
 		GLint v_len, f_len;
 		GLchar *v_src, *f_src;
 		std::ifstream f;
-		//int shader_no = 0;
+		_shader_pair *e_shaset = shader_collection+1;
+		for (_shader_pair *sp = e_shaset; sp->name != NULL; sp++) {
+			fprintf(stderr, "Embedded shader set '%s'%s\n",
+					sp->name, (glsl_conf.shader_set == sp->name) ? e_shaset = sp, " x" : "");
+		}
 
 		f.open(glsl_conf.vs_path.c_str(), ios::binary);
 		if (f.is_open()) {
@@ -413,9 +404,9 @@ class renderer_glsl : public renderer {
 			shader_collection[0].v_len[0] = v_len;
 			shader_collection[0].v_src[0] = v_src;
 		} else {
-			fprintf(stderr, "Using embedded vertex shader code.\n");
-			shader_collection[0].v_len[0] = shader_collection[1].v_len[0];
-			shader_collection[0].v_src[0] = shader_collection[1].v_src[0];
+			fprintf(stderr, "Using embedded vertex shader code from '%s'.\n", e_shaset->name);
+			shader_collection[0].v_len[0] = e_shaset->v_len[0];
+			shader_collection[0].v_src[0] = e_shaset->v_src[0];
 		}
 		f.open(glsl_conf.fs_path.c_str(), ios::binary);
 		if (f.is_open()) {
@@ -430,9 +421,9 @@ class renderer_glsl : public renderer {
 			shader_collection[0].f_len[0] = f_len;
 			shader_collection[0].f_src[0] = f_src;
 		} else {
-			fprintf(stderr, "Using embedded fragment shader code.\n");
-			shader_collection[0].f_len[0] = shader_collection[1].f_len[0];
-			shader_collection[0].f_src[0] = shader_collection[1].f_src[0];
+			fprintf(stderr, "Using embedded fragment shader code from '%s'.\n", e_shaset->name);
+			shader_collection[0].f_len[0] = e_shaset->f_len[0];
+			shader_collection[0].f_src[0] = e_shaset->f_src[0];
 		}
 
 		GLuint v_sh = glCreateShader(GL_VERTEX_SHADER);
@@ -596,7 +587,8 @@ class renderer_glsl : public renderer {
 		do_update_attrs = true;
 	}
 	void update_vbos() {
-		screen_underlay_update();
+		if (glsl_conf.use_underlay)
+			screen_underlay_update();
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[ULOD_BO]);
 		fputsGLError(stderr);
@@ -604,8 +596,12 @@ class renderer_glsl : public renderer {
 		fputsGLError(stderr);
 
 		if (do_update_attrs) {
-			glVertexAttribPointer(attr_loc[SCREEN], 4, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.underlay));
+			if (glsl_conf.use_underlay)
+				glVertexAttribPointer(attr_loc[SCREEN], 4, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.underlay));
+			else
+				glVertexAttribPointer(attr_loc[SCREEN], 4, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.screen));
 			fputsGLError(stderr);
+
 			glVertexAttribPointer(attr_loc[TEXPOS], 1, GL_UNSIGNED_INT, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.texpos));
 			fputsGLError(stderr);
 			glVertexAttribPointer(attr_loc[ADDCOLOR], 1, GL_UNSIGNED_BYTE, GL_FALSE, 0, BUFFER_OFFSET(bo_offset.addcolor));
@@ -633,10 +629,10 @@ class renderer_glsl : public renderer {
 	 *  @param toggle_fullscreen - if a toggle of fullscreen state was requested
 	 */
 	void reshape(int new_grid_w = 0, int new_grid_h = 0, int new_window_w = -1, int new_window_h = -1,
-					bool toggle_fullscreen = false) {
+					bool toggle_fullscreen = false, bool override_snap = false) {
 		fprintf(stderr, "reshape(): got grid %dx%d window %dx%d texture_ready=%d stretch=%d snap=%d\n",
 				new_grid_w, new_grid_h, new_window_w, new_window_h,
-				texture_ready, do_stretch_tiles, do_snap_window);
+				texture_ready, glsl_conf.stretch_tiles, glsl_conf.snap_window);
 
 		if (!texture_ready) // can't draw anything without tile_w, tile_h and a texture anyway
 			return;
@@ -680,7 +676,7 @@ class renderer_glsl : public renderer {
 			new_grid_h = MIN(MAX(new_grid_h, MIN_GRID_Y), MAX_GRID_Y);
 		}
 
-		if (do_stretch_tiles) {
+		if (glsl_conf.stretch_tiles) {
 			/* now try to fill rest  of the window with graphics,
 			 * not paying any more attention to tile graphics aspect ratio
 			 */
@@ -726,9 +722,8 @@ class renderer_glsl : public renderer {
 			}
 		} else {
 			if (!fullscreen) {
-				if (do_snap_window) { // set window size to viewport size.
+				if (glsl_conf.snap_window && !override_snap) { // set window size to viewport size.
 					set_mode(viewport_w, viewport_h, false);
-					do_snap_window = false; // so it doesn't get used when zooming
 				} else { // ah, whatever.
 					set_mode(new_window_w, new_window_h, false);
 				}
@@ -755,7 +750,7 @@ class renderer_glsl : public renderer {
 		int new_grid_w = surface->w/new_psz_x;
 		int new_grid_h = surface->h/new_psz_y;
 
-		reshape(new_grid_w, new_grid_h);
+		reshape(new_grid_w, new_grid_h, -1, -1, false, true);
 	}
 	void resize(int new_window_w, int new_window_h, bool toggle_fullscreen = false) {
 		/* here so we don't duplicate code for the fullscreen case */
@@ -773,7 +768,6 @@ class renderer_glsl : public renderer {
 			new_grid_w = new_window_w / ( surface->w / grid_w );
 			new_grid_h = new_window_h / ( surface->h / grid_h );
 		}
-		do_snap_window = glsl_conf.snap_window;
 		reshape(new_grid_w, new_grid_h, new_window_w, new_window_h, toggle_fullscreen);
 	}
 
@@ -876,7 +870,6 @@ public:
 				 * So just set some grid size.
 				 */
 				fprintf(stderr, "zoom(): zoom_resetgrid\n");
-				do_snap_window = glsl_conf.snap_window;
 				reshape(surface->w/tile_w, surface->h/tile_h);
 				break;
 			case zoom_fullscreen:
@@ -903,7 +896,6 @@ public:
 					new_window_w = init.display.desired_windowed_width;
 					new_window_h = init.display.desired_windowed_height;
 				}
-				do_snap_window = glsl_conf.snap_window;
 				resize(new_window_w, new_window_h, true);
 				return;
 		}
@@ -911,16 +903,11 @@ public:
 	virtual void grid_resize(int new_grid_w, int new_grid_h) {
 		/* dis gets called from enablerst::override_grid_size() only
 		 * this means the grid size is fixed. thus do not touch it,
-		 *
-		 * do_snap_window gets reset every reshape to not be
-		 * taken into account when zooming (what a crappy design)
 		 */
-		do_snap_window = glsl_conf.snap_window;
 		reshape(new_grid_w, new_grid_h);
 	}
 	virtual void resize(int w, int h) {
 		/* dis gets called on SDL_VIDEORESIZE event */
-		do_snap_window = glsl_conf.snap_window;
 		resize(w, h, false);
 	}
 
@@ -929,9 +916,6 @@ public:
 		texture_ready = false;
 		tile_w = 0;
 		tile_h = 0;
-		do_snap_window = glsl_conf.snap_window;
-		do_stretch_tiles = !init.display.flag.has_flag(INIT_DISPLAY_FLAG_BLACK_SPACE);
-		texture_filter = init.window.flag.has_flag(INIT_WINDOW_FLAG_TEXTURE_LINEAR) ? GL_LINEAR : GL_NEAREST;
 		grid = NULL;
 		screen = NULL;
 		texture_generation = 0;

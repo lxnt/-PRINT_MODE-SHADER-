@@ -53,18 +53,23 @@ void main() { // precomputes whatever there can be precomputed
     bg_color = vec4(0, 0, 0, 1);
 
     float scr_idx;
-    float cre_idx;
+    float cre_idx;    
+    
+    vec2 screen_c = ansiconvert(screen.yzw);
+    vec2 texpos_c = ansiconvert(vec3(cf, cbr, 0));
+    fg_color = texture1D(ansi, screen_c.x);
+    bg_color = texture1D(ansi, screen_c.y);
 
-    vec2 ansi_c = ansiconvert(screen.yzw);
+    scr_idx = screen.x;
     
     if (texpos > 0.1) {
         cre_idx = texpos;
         if  (grayscale > 0.1) {  
-            cf_color = texture1D(ansi, cf/ANSI_CC);
-            cb_color = texture1D(ansi, cbr/ANSI_CC);
+            cf_color = texture1D(ansi, texpos_c.x);
+            cb_color = texture1D(ansi, texpos_c.y);
         } else if (addcolor > 0.1) {
-            cf_color = texture1D(ansi, ansi_c.x);
-            cb_color = texture1D(ansi, ansi_c.y);
+            cf_color = texture1D(ansi, screen_c.x);
+            cb_color = texture1D(ansi, screen_c.y);
         } else {	    
             cf_color = vec4(1,1,1,1);
             cb_color = vec4(0,0,0,1);
@@ -77,11 +82,7 @@ void main() { // precomputes whatever there can be precomputed
         texoffset.z = -8.23;
         texoffset.w = -23.42;
     }
-    
-    scr_idx = screen.x;
-    fg_color = texture1D(ansi, ansi_c.x);
-    bg_color = texture1D(ansi, ansi_c.y);
-    
+
     texoffset.x = fract( scr_idx / txsz.x );          // this magically does not depend
     texoffset.y = floor( scr_idx / txsz.x ) / txsz.y; // on graphics' aspect ratio or size.             
     

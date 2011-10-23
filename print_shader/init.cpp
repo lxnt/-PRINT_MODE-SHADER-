@@ -115,8 +115,14 @@ void initst::begin()
 					glsl_conf.vs_path = token2;
 				if (token=="FRAGMENT_SHADER")
 					glsl_conf.fs_path = token2;
+				if (token=="SHADER_SET")
+					glsl_conf.shader_set = token2;
+				if (token=="USE_UNDERLAY")
+					glsl_conf.use_underlay = (token2 == "YES");
 				if (token=="SNAP_WINDOW")
 					glsl_conf.snap_window = (token2 == "YES");
+				if (token=="DUMP_CREATURES")
+					glsl_conf.dump_creatures = (token2 == "YES");
 				if(token=="PRINT_MODE")
 					{
 					if(token2=="PARTIAL")
@@ -683,4 +689,6 @@ void initst::begin()
           display.desired_windowed_width = font.small_font_dispx * dimx;
           display.desired_windowed_height = font.small_font_dispy * dimy;
         }
+	glsl_conf.stretch_tiles = !display.flag.has_flag(INIT_DISPLAY_FLAG_BLACK_SPACE);
+	glsl_conf.texture_filter = window.flag.has_flag(INIT_WINDOW_FLAG_TEXTURE_LINEAR) ? GL_LINEAR : GL_NEAREST;
 }

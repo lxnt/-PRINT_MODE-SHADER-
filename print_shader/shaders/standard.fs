@@ -23,23 +23,12 @@ void main() { // final touch
                            pc.x/txsz.x + texoffset.z,
                            pc.y/txsz.y + texoffset.w );
     
-    vec4 tile_color = texture2D(font, texcoords.xy);
-    
-    /* blend tile with its fg&bg colors */
-    vec4 t_color = mix(tile_color*fg_color, bg_color, 1-tile_color.a);
-    
-    if (texcoords.z > 0) { // there is a creature 
+    if (texcoords.z > 0) { 
         vec4 crea_color = texture2D(font, texcoords.zw);
-        
-        /* blend  creature with its fg&bg colors */
-        crea_color = mix(crea_color*cf_color, cb_color, 1-crea_color.a);
-    
-        if (crea_color.a > 0.99) {
-            gl_FragColor = mix(t_color, crea_color, 1-crea_color.a);
-        }
+        gl_FragColor = mix(crea_color*cf_color, cb_color, 1-crea_color.a);
     } else {
-        gl_FragColor = t_color;
-    }
-
+	vec4 tile_color = texture2D(font, texcoords.xy);
+	gl_FragColor = mix(tile_color*fg_color, bg_color, 1 - tile_color.a);
+    }	
     gl_FragColor.a = final_alpha;
 }
