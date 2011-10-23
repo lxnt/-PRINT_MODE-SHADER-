@@ -74,11 +74,15 @@ init.txt tokens specific to this renderer:
 [PRINT_MODE:SHADER] - enables the renderer 
 [VERTEX_SHADER:data/vertex.shader] - override embedded shader code
 [FRAGMENT_SHADER:data/fragment.shader] - same for fragment shader
+[SHADER_SET:standard] embedded shader set name. Name list is output at startup.
 [DUMP_STUFF:0] - control screen and texture dumping.
     0 - no dumping
     N - dumps texture on upload to the GPU, 
         dumps complete screen data every Nth frame
 [DUMP_TO:blahblah] - sets prefix for dumps. Default: "dfdump"
+[SNAP_WINDOW:NO]  snap window size to not leave black margins (resize only)
+[USE_UNDERLAY:NO]  attempt to remember the floor tile under creatures
+[DUMP_CREATURES:NO] dump creature draw data to stderr
 
 Project needs:
 ==============

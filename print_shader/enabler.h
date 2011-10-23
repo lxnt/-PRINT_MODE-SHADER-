@@ -775,8 +775,8 @@ struct glsl_configst {
 	std::string dump_pfx;		// [DUMP_TO:]
 	std::string vs_path;		// [VERTEX_SHADER:]  external vertex shader code
 	std::string fs_path;		// [FRAGMENT_SHADER:] external fragment shader code
-	std::string shader_set;		// [SHADERSET:] embedded shader set name
-	bool snap_window;			// [SNAP_WINDOW:NO]  snap window to not leave black margins (resize only)
+	std::string shader_set;		// [SHADER_SET:] embedded shader set name
+	bool snap_window;			// [SNAP_WINDOW:NO]  snap window size to not leave black margins (resize only)
 	bool use_underlay;			// [USE_UNDERLAY:NO]  attempt to remember the floor tile under creatures
 	GLint texture_filter;		// [TEXTURE_PARAM:LINEAR]  default: NEAREST
 	bool stretch_tiles; 		// [GRAPHICS_BLACK_SPACE:NO] deform tiles to fill whole viewport when zooming/resizing
