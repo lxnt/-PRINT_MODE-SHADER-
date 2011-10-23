@@ -157,11 +157,11 @@ sudo mv glew32/usr/lib/libGLEW.so* /usr/lib32
 /usr/lib/x86_64-linux-gnu/glib-2.0/include/ - the x86_64 is in the path for a reason.
 Instead fetch -dev package for i386:
 
-wget http://mirror.yandex.ru/ubuntu/pool/main/g/glib2.0/libglib2.0-0_2.28.6-0ubuntu1_i386.deb
+wget http://mirror.yandex.ru/ubuntu/pool/main/g/glib2.0/libglib2.0-dev_2.28.6-0ubuntu1_i386.deb
 
 decompress:
 
-dpkg-deb -x libglib2.0-0_2.28.6-0ubuntu1_i386.deb glib32
+dpkg-deb -x libglib2.0-dev_2.28.6-0ubuntu1_i386.deb glib32
 
 and put the glibconfig.h from glib32 somewhere. Then point Eclipse 
 (project->properties->C/C++Build->Settings->GCC C++ Compiler->Includes)
