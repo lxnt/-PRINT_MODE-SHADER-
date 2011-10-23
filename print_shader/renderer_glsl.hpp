@@ -1,14 +1,7 @@
 #include "zlib.h"
 #include "IMG_savepng.h"
 
-#define SCMANGLE(vors,sore) _binary____##vors##_shader_##sore
-
-extern "C" {
-	extern GLchar SCMANGLE(fragment, end);
-	extern GLchar SCMANGLE(fragment, start);
-	extern GLchar SCMANGLE(vertex, end);
-	extern GLchar SCMANGLE(vertex, start);
-}
+#include "shaders.c"
 
 extern texdumpst texdumper;
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -106,6 +99,7 @@ class renderer_glsl : public renderer {
 
 	inline Uint32 *tile_u32(int x, int y, int s) { return ((Uint32 *) (screen + s) + x*grid_h + y ); };
 	inline Uint32 *index_u32(int i, int s) { return ((Uint32 *) (screen + s) + i ); };
+	inline Uint8 *index_u8(int i, int s) { return ((Uint8 *) (screen + s) + i ); };
 #endif
 	/** screen_underlay. Contains a copy of screen with tiles that are
 	 * now under creatures not overwritten, if possible.
@@ -132,8 +126,10 @@ class renderer_glsl : public renderer {
 		for (int i=0; i < grid_tile_count; i++)
 			if (! *index_u32(i, bo_offset.texpos) ) // no creature here
 				*index_u32(i, bo_offset.underlay) = *index_u32(i, bo_offset.screen);
-#ifdef DEBUG_CREABLEND
+
 			else {
+				record_crea(i);
+#ifdef DEBUG_CREABLEND_TRACK
 				if ( *index_u32(i, bo_offset.underlay) != *index_u32(i, bo_offset.screen) ) {
 					Uint32 crea = *index_u32(i, bo_offset.underlay);
 					Uint32 val = *index_u32(i, bo_offset.screen);
@@ -148,8 +144,36 @@ class renderer_glsl : public renderer {
 						last_seen_crea = crea;
 					}
 				}
-			}
 #endif
+			}
+	}
+#if 0
+	struct crea {
+		unsigned char screen[4];
+		long texpos;
+		unsigned char grayscale;
+		unsige
+	};
+#endif
+	void record_crea(int i) {
+		char c,g;
+		long texpos = *(long*)index_u32(i, bo_offset.texpos);
+
+		std::set<long>::iterator it;
+		it = texdumper.cloned.find(i);
+		c = (it == texdumper.cloned.end()) ? ' ' : 'c';
+		it = texdumper.gray.find(i);
+		g = (it == texdumper.gray.end()) ? ' ' : 'g';
+		unsigned char *s = (unsigned char *) index_u32(i, bo_offset.screen);
+		fprintf(stderr, "%02x.%02x.%02x.%02x texpos %5ld [%c%c] %1x:%1x:%1x:%1x\n",
+				s[0], s[1], s[2], s[3],
+				texpos, c, g,
+				*index_u8(i, bo_offset.addcolor),
+				*index_u8(i, bo_offset.grayscale),
+				*index_u8(i, bo_offset.cf),
+				*index_u8(i, bo_offset.cbr)
+		);
+
 	}
 	virtual void gps_allocate(int x, int y) {
 		fprintf(stderr, "gps_allocate(%d, %d)\n", x, y);
@@ -374,6 +398,7 @@ class renderer_glsl : public renderer {
 		GLint v_len, f_len;
 		GLchar *v_src, *f_src;
 		std::ifstream f;
+		//int shader_no = 0;
 
 		f.open(glsl_conf.vs_path.c_str(), ios::binary);
 		if (f.is_open()) {
@@ -385,10 +410,12 @@ class renderer_glsl : public renderer {
 			f.read(v_src, v_len);
 			f.close();
 			v_src[v_len] = 0;
+			shader_collection[0].v_len[0] = v_len;
+			shader_collection[0].v_src[0] = v_src;
 		} else {
 			fprintf(stderr, "Using embedded vertex shader code.\n");
-			v_len = &SCMANGLE(vertex, end) - &SCMANGLE(vertex, start);
-			v_src = &SCMANGLE(vertex, start);
+			shader_collection[0].v_len[0] = shader_collection[1].v_len[0];
+			shader_collection[0].v_src[0] = shader_collection[1].v_src[0];
 		}
 		f.open(glsl_conf.fs_path.c_str(), ios::binary);
 		if (f.is_open()) {
@@ -400,13 +427,13 @@ class renderer_glsl : public renderer {
 			f.read(f_src, f_len);
 			f.close();
 			f_src[f_len] = 0;
+			shader_collection[0].f_len[0] = f_len;
+			shader_collection[0].f_src[0] = f_src;
 		} else {
 			fprintf(stderr, "Using embedded fragment shader code.\n");
-			f_len = &SCMANGLE(fragment, end) - &SCMANGLE(fragment, start);
-			f_src = &SCMANGLE(fragment, start);
+			shader_collection[0].f_len[0] = shader_collection[1].f_len[0];
+			shader_collection[0].f_src[0] = shader_collection[1].f_src[0];
 		}
-		const GLchar * v_srcp[1] = { v_src };
-		const GLchar * f_srcp[1] = { f_src };
 
 		GLuint v_sh = glCreateShader(GL_VERTEX_SHADER);
 		GLuint f_sh = glCreateShader(GL_FRAGMENT_SHADER);
@@ -417,8 +444,8 @@ class renderer_glsl : public renderer {
 		glAttachShader(shader, f_sh);
 		fputsGLError(stderr);
 
-		glShaderSource(v_sh, 1, v_srcp, &v_len);
-		glShaderSource(f_sh, 1, f_srcp, &f_len);
+		glShaderSource(v_sh, 1, const_cast<const GLchar**>(shader_collection[0].v_src), shader_collection[0].v_len);
+		glShaderSource(f_sh, 1, const_cast<const GLchar**>(shader_collection[0].f_src), shader_collection[0].f_len);
 		fputsGLError(stderr);
 
 		glCompileShader(v_sh);

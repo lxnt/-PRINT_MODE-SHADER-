@@ -759,6 +759,8 @@ namespace std {
 
 struct texdumpst {
 	SDL_Surface *cats;
+	std::set<long> gray;
+	std::set<long> cloned;
 	int count, w_t, h_t, limit;
 	Uint16 w, h, t_w, t_h;
 	bool finished;

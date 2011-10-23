@@ -351,7 +351,7 @@ long textures::clone_texture(long src) {
   std::cerr << "Asked to clone nonexistent texture!\n";
   tx=add_texture(NULL);
   }
-
+  texdumper.cloned.insert(tx);
   enabler.reset_textures();
 
   return tx;
@@ -383,7 +383,7 @@ if(luminosity>255)luminosity=255;
 
  cleanup:
  SDL_UnlockSurface(s);
-
+ texdumper.cloned.insert(pos);
  enabler.reset_textures();
 }
 
