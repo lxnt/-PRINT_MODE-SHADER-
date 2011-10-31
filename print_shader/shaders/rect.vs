@@ -1,11 +1,14 @@
 #version 120
 #line 2 0
+#ifndef GL_ARB_texture_rectangle
+#extension GL_ARB_texture_rectangle : require
+#endif
 #pragma optimize(off)
 #pragma debug(on)
 
 const float ANSI_CC = 16.0; // ansi color count 
 
-uniform sampler2D txco;
+uniform sampler2DRect txco;
 uniform vec4 txsz;              // { w_tiles, h_tiles, tile_w, tile_h }
 uniform vec2 viewpoint;			
 uniform vec3 pszar; 			// { parx, pary, psz }
@@ -31,8 +34,8 @@ vec2 ansiconvert(vec3 c) { // { fg, bg, bold }, returns {fg_idx, bg_idx}
     if (c.z > 0.1)
         bold_factor = 8.0;
 
-    rv.x = mod(c.x + bold_factor, ANSI_CC)/ANSI_CC;
-    rv.y = mod(c.y, ANSI_CC)/ANSI_CC;
+    rv.x = mod(c.x + bold_factor, ANSI_CC);
+    rv.y = mod(c.y, ANSI_CC);
     return rv;
 }
 
@@ -40,17 +43,18 @@ vec4 idx2texco(float idx) {
     vec4 tile_size;
     vec4 rv;
     
-    rv.x = fract( idx / txsz.x );  	    // normalized coords 
-    rv.y = floor( idx / txsz.x ) / txsz.y;  // into font texture - "offset"
-
-    tile_size = texture2D(txco, rv.xy);
-    rv.zw = tile_size.xy*256/txsz.zw ; // pixel size of the tile normalized to maxtilesize
+    rv.x =   mod( idx,  txsz.x );  // tile coords 
+    rv.y = floor( idx / txsz.x );  // into txco texture
+    
+    tile_size = texture2DRect(txco, rv.xy);
+    
+    rv.xy = rv.xy * txsz.zw; // now make tile coords into pixel ones
+    rv.zw = tile_size.xy * 256.0; // pixel size of the tile = "tilesize"
     
     return rv;
 }
 
-void main() { // precomputes whatever there can be precomputed
-    
+void main() { 
     ansicolors.xy = ansiconvert(screen.yzw);
     tile = idx2texco(screen.x);
     
