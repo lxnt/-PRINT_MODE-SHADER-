@@ -13,10 +13,10 @@ Resources:
 Current state:
 ==============
 
-Game is playable. Graphics and tileset tile sizes are fixed to the size of first
-tile loaded, this always is the 0th character of the font (tileset).
-
-Creature rendering is currently broken.
+Game is playable. Graphics and tileset aspect ratio is fixed to the one  of first
+tile loaded, this always is the 0th character of the font (tileset). Tiles/graphics
+can be of any size, but this does eat video memory and you can bump into video card
+limit on texture height.
 
 Download link above points to a compressed libprint_shader.so (with full debug,
 that's why the size). Replace your libs/libgraphics.so with it to try this out.
@@ -30,24 +30,21 @@ with open-source drivers from xorg-edgers repo.
 OpenGL renderer string: Mesa DRI R600 (RV770 9440) 
 20090101 x86/MMX+/3DNow!+/SSE2 TCL DRI2
 
-Now I develop it on Ubuntu Natty 64bit with stock drivers, same card.
+Now I develop it on Ubuntu Oneiric 64bit with stock drivers, same card.
 
-The code should work on anything that more-or-less supports GLSL 1.2
-Specific graphics hardware and driver requirements:
+The code should work on any more-or-less proprietary drivers.
+Ubuntu Natty Mesa (open-source driver) has a bug in GLSL compiler, 
+this causes the game to hang.
 
-GL_MAX_VERTEX_ATTRIBS=16, needed=7
-GL_MAX_VERTEX_UNIFORM_COMPONENTS=4096, needed=7
-GL_MAX_FRAGMENT_UNIFORM_COMPONENTS=4096, needed=6
-GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS=16, needed=1
-GL_MAX_TEXTURE_IMAGE_UNITS=16, needed=1
-GL_MAX_VARYING_FLOATS=64, needed=20
-GL_MAX_TEXTURE_COORDS=8, needed=5
-GL_POINT_SIZE_MIN=0, needed=4
-GL_POINT_SIZE_MAX=8192, needed=63
+Ubuntu Oneric and Natty Mesa have a bug in Radeon Gallium driver, 
+this causes my driver to not function properly. Workaround:
+use non-Gallium driver:
+Oneiric : export LIBGL_DRIVERS_PATH=/usr/lib/i386-linux-gnu/dri-alternates
+Natty : export LIBGL_DRIVERS_PATH=/usr/lib32/dri-alternates
 
-This is output on each run, so you will see if your box is not up 
-to the task. You can also check out which cards are capable of what
-at http://www.kludx.com/
+Specific graphics hardware and driver requirements are  output on each run, 
+so you will see if your box is not up to the task. 
+You can check out which cards are capable of what at http://www.kludx.com/
 
 
 Features not found in other renderers:
@@ -68,6 +65,7 @@ Features not found in other renderers:
    This requires one pass over the screen and screentexpos arrays 
    and maintenance of 'shadow' screen_underlay array. 
    grid_x*grid_y int32 compares and some amount of int32 writes per frame.
+   This feature is broken at the moment.
 
 init.txt tokens specific to this renderer:
 
@@ -88,7 +86,7 @@ Project needs:
 ==============
  
  - More testing.
-
+ - Ubuntu release with multi-arch support fixed at last.
 
 What next?
 ==========
@@ -131,6 +129,16 @@ First of all, please keep in mind, that current multilib support,
 at least in Ubuntu/Debian is not intended for compiling and, even
 less, linking for 32bit i686 target. Thus the process is not quite 
 as straightforward as we certainly would have liked.
+
+Multi-arch support in Oneiric 64bit is so incomplete that I dropped
+the idea of cross-compiling and instead put up a KVM virtual machine
+with Oneric 32bit inside just for building. VirtFS is also semi-broken, 
+so I can't do much anything except "make clean all" inside it.
+There's new Eclipse build target for this : native-oneiric-debug.
+
+Eclipse CDT sucks.
+
+Stuff below is applicable to Natty 64bit without multi-arch enabled.
 
 How to do it on Ubuntu Natty 64bit:
 
@@ -183,11 +191,12 @@ Running it on x86_64 system.
 
 1. If you use open source graphics drivers, put  
 
-export LIBGL_DRIVERS_PATH=/usr/lib32/dri-alternates
+Oneiric : export LIBGL_DRIVERS_PATH=/usr/lib/i386-linux-gnu/dri-alternates
+Natty-no-multiarch : export LIBGL_DRIVERS_PATH=/usr/lib32/dri-alternates
 
 into the ./df script. This selects classic Mesa (non-Gallium)
 drivers. Gallium ones that ship with Ubuntu ia32-libs are outdated
-and do not contain needed bugfixes.
+and do not contain needed bugfixes, which can't be said of new bugs.
 
 2. You can delete/rename  libstdc++.so.6 and libgcc_s.so.1
 that are in df_linux/libs directory - system ones work fine,
