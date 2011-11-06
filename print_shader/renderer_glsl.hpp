@@ -55,7 +55,8 @@ class renderer_glsl : public renderer {
 	GLint  unif_loc[LAST_UNIF];
 	GLuint shader;
 	GLint txsz_w, txsz_h; 		// texture size in tiles
-	GLint tile_w, tile_h;		// texture cell size in texels (actual graphic may be smaller)
+	GLint cell_w, cell_h;		// texture cell size in texels (actual graphic may be smaller)
+	GLint tile_w, tile_h;		// font texture cell size in texels (may be smaller than the above)
 	GLfloat *grid;
 	GLsizeiptr grid_bo_size;	// size of currently used BO
 	GLint grid_tile_count; 		// and in tiles
@@ -343,9 +344,11 @@ class renderer_glsl : public renderer {
 		bool reshape_required = (  (tile_w != texdumper.t1_w) || (tile_h != texdumper.t1_h) );
 		txsz_w = texdumper.w_t;
 		txsz_h = texdumper.h_t;
-		tile_w = texdumper.max_tw;
-		tile_h = texdumper.max_th;
-		glUniform4f(unif_loc[TXSZ], txsz_w, txsz_h, tile_w, tile_h);
+		tile_w = texdumper.t1_w;
+		tile_h = texdumper.t1_h;
+		cell_w = texdumper.max_tw;
+		cell_h = texdumper.max_th;
+		glUniform4f(unif_loc[TXSZ], txsz_w, txsz_h, cell_w, cell_h);
 		fputsGLError(stderr);
 		fprintf(stderr, "accepted font texture (name=%d): %dx%dpx oa\n", tex_id[FONT], cats->w, cats->h);
 		fprintf(stderr, "accepted txco texture (name=%d): %dx%dpx oa\n", tex_id[TXCO], txsz_w, txsz_h);
@@ -552,7 +555,7 @@ class renderer_glsl : public renderer {
 		glDeleteProgram(shader); // frees all the stuff
 		shader_setup();
 		do_update_attrs = true;
-		glUniform4f(unif_loc[TXSZ], txsz_w, txsz_h, tile_h, tile_w);
+		glUniform4f(unif_loc[TXSZ], txsz_w, txsz_h, cell_h, cell_w);
 		fputsGLError(stderr);
 		reshape(grid_w, grid_h); // update PSZAR
 	}
@@ -696,8 +699,8 @@ class renderer_glsl : public renderer {
 	 */
 	void reshape(int new_grid_w = 0, int new_grid_h = 0, int new_window_w = -1, int new_window_h = -1,
 					bool toggle_fullscreen = false, bool override_snap = false) {
-		fprintf(stderr, "reshape(): got grid %dx%d window %dx%d texture_ready=%d stretch=%d snap=%d\n",
-				new_grid_w, new_grid_h, new_window_w, new_window_h,
+		fprintf(stderr, "reshape(): got grid %dx%d window %dx%d tile %dx%d texture_ready=%d stretch=%d snap=%d\n",
+				new_grid_w, new_grid_h, new_window_w, new_window_h, tile_w, tile_h,
 				texture_ready, glsl_conf.stretch_tiles, glsl_conf.snap_window);
 
 		if (!texture_ready) // can't draw anything without tile_w, tile_h and a texture anyway
@@ -853,6 +856,7 @@ class renderer_glsl : public renderer {
 			int surface_w, surface_h;		// window dimensions
 			GLint txsz_w, txsz_h; 		// texture size in tiles
 			GLint tile_w, tile_h;		// tile size in texels
+			GLint cell_w, cell_h;		// tile size in texels
 			int frame_number;
 			int texture_generation;    // which of texdumpNNNN.png the above refer to
 		} hdr;
@@ -863,6 +867,7 @@ class renderer_glsl : public renderer {
 		hdr.surface_w = surface->w; hdr.surface_h = surface->h;
 		hdr.txsz_w = txsz_w; hdr.txsz_h = txsz_h;
 		hdr.tile_w = tile_w; hdr.tile_h = tile_h;
+		hdr.cell_w = cell_w; hdr.cell_h = cell_h;
 		hdr.texture_generation = texture_generation - 1;
 		hdr.frame_number = f_counter;
 
