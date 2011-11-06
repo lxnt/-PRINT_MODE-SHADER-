@@ -63,6 +63,8 @@ class renderer_glsl : public renderer {
 	GLint grid_w, grid_h;		// and again in tiles
 	int Pszx, Pszy, Psz;		// Point sprite size as drawn
 	SDL_Surface *surface;
+	Uint32 last_frame_start_ts; // when render() for the last frame was called.
+	Uint32 last_frame_swap_ts;  // when render() for the last frame finished.
     GLfloat *tilesizes;         // tile sizes: a texture. dimensions eq txsz_w x txsz_h.
 	int texture_generation;     // screen dumper uses this
 	void *dump_buffer;          // its internals
@@ -93,6 +95,9 @@ class renderer_glsl : public renderer {
 	bool reset_underlay;		// if underlay has to be reset, i.e. there was scrolling.
 
 	Uint32 last_seen_ul, last_seen_crea;
+
+	Uint32 fadein_finish_at;	// when fadein should finish (abs sdltick)
+	Uint32 print_rendertime_at;
 
 	inline Uint32 *tile_u32(int x, int y, int s) { return ((Uint32 *) (screen + s) + x*grid_h + y ); };
 	inline Uint32 *index_u32(int i, int s) { return ((Uint32 *) (screen + s) + i ); };
@@ -358,6 +363,7 @@ class renderer_glsl : public renderer {
 		texture_ready = true;
 		if (reshape_required)
 			reshape();
+		fadein_start();
 	}
 	void rebind_textures() {
 		glActiveTexture(GL_TEXTURE0);
@@ -886,12 +892,42 @@ class renderer_glsl : public renderer {
 		fprintf(stderr, "dump_screen(): frame %d: %ld bytes (compressed %ld->%ld + %d)\n",
 				f_counter, destLen + sizeof(struct _dump_header), sourceLen, destLen, sizeof(struct _dump_header));
 	}
-
+	void fadein_start() {
+		if (glsl_conf.fade_in > 0) {
+			fadein_finish_at = SDL_GetTicks() + glsl_conf.fade_in;
+			glUniform1f(unif_loc[FINAL_ALPHA], 0.0);
+		} else {
+			glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
+		}
+	}
+	void fadein_update(Uint32 now) {
+		if (fadein_finish_at > now) {
+			glUniform1f(unif_loc[FINAL_ALPHA], 1.0 - (double)(fadein_finish_at - now)/(double) glsl_conf.fade_in);
+		} else {
+			fadein_finish_at = 0;
+			glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
+		}
+	}
+	void timed_stuff(Uint32 now, Uint32 last_st, Uint32 last_sw) {
+		if (last_st == 0) {
+			fadein_start();
+			return; // first frame
+		}
+		if (fadein_finish_at > 0)
+			fadein_update(now);
+		if (print_rendertime_at < now) {
+			print_rendertime_at = now + 5000;
+			fprintf(stderr, "Frame drawn in %d msec\n", last_sw - last_st);
+		}
+	}
 public:
 	virtual void display() 					{ if (0) std::cerr<<"display(): do not need.\n"; }
 	virtual void update_tile(int x, int y)  { if (1) std::cerr<<"update_tile(): do not need.\n"; }
 	virtual void update_all() 				{ reload_shaders(); } // ugly overload :)
 	virtual void render() {
+		Uint32 start_ts = SDL_GetTicks();
+		timed_stuff(start_ts, last_frame_start_ts, last_frame_swap_ts);
+
 #if 0
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_1D, tex_id[ANSI]);
@@ -901,7 +937,11 @@ public:
 		glBindTexture(GL_TEXTURE_1D, tex_id[TXCO]);
 		//glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
 #endif
-		glClearColor(0.0, 0.5, 0.0, 1);
+		glClearColor(
+			enabler.ccolor[glsl_conf.glclearcolor][0],
+			enabler.ccolor[glsl_conf.glclearcolor][1],
+			enabler.ccolor[glsl_conf.glclearcolor][2],
+			1.0 );
 		glClear(GL_COLOR_BUFFER_BIT);
 		fputsGLError(stderr);
 		update_vbos();
@@ -910,6 +950,9 @@ public:
 		fputsGLError(stderr);
 		if (do_swap)
 			SDL_GL_SwapBuffers();
+
+		last_frame_start_ts = start_ts;
+		last_frame_swap_ts = SDL_GetTicks();
 		f_counter ++;
 		if ((glsl_conf.dump_stuff > 0) && (f_counter % glsl_conf.dump_stuff == 0))
 			dump_screen();
@@ -987,6 +1030,8 @@ public:
 		texture_ready = false;
 		tile_w = 0;
 		tile_h = 0;
+		cell_w = 0;
+		cell_h = 0;
 		grid_w = 0;
 		grid_h = 0;
 		grid = NULL;
@@ -994,6 +1039,9 @@ public:
 		texture_generation = 0;
 		dump_buffer = NULL;
 		surface = NULL;
+		last_frame_start_ts = 0;
+		print_rendertime_at = 0;
+		fadein_finish_at = 0;
 
 		char sdl_videodriver[256];
 		if (NULL == SDL_VideoDriverName(sdl_videodriver, sizeof(sdl_videodriver)))

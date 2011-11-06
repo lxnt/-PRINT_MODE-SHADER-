@@ -788,6 +788,8 @@ struct glsl_configst {
 	GLint texture_filter;		// [TEXTURE_PARAM:LINEAR]  default: NEAREST
 	bool stretch_tiles; 		// [GRAPHICS_BLACK_SPACE:NO] deform tiles to fill whole viewport when zooming/resizing
 	bool dump_creatures;		// [DUMP_CREATURES:NO] dump creature draw data to stderr
+	int fade_in;				// fade in duration in milliseconds
+	int glclearcolor;			// index into ascii table for the color to glClearColor the window
 
 	glsl_configst() {
 		dump_stuff = 0;
@@ -801,6 +803,8 @@ struct glsl_configst {
 		snap_window = false;
 		stretch_tiles = false;
 		dump_creatures = false;
+		fade_in = 0;
+		glclearcolor = 0;
 	}
 };
 

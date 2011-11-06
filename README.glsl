@@ -21,31 +21,22 @@ limit on texture height.
 Download link above points to a compressed libprint_shader.so (with full debug,
 that's why the size). Replace your libs/libgraphics.so with it to try this out.
 
+Make sure you have [SHADER_SET:cbr_is_bold] in your init.txt.
+
 System requirements:
 ====================
 
-I was developing this on an Ubuntu Maverick 32bit machine and an Radeon 4850
-with open-source drivers from xorg-edgers repo.
-
-OpenGL renderer string: Mesa DRI R600 (RV770 9440) 
-20090101 x86/MMX+/3DNow!+/SSE2 TCL DRI2
-
-Now I develop it on Ubuntu Oneiric 64bit with stock drivers, same card.
-
-The code should work on any more-or-less proprietary drivers.
-Ubuntu Natty Mesa (open-source driver) has a bug in GLSL compiler, 
-this causes the game to hang.
-
-Ubuntu Oneric and Natty Mesa have a bug in Radeon Gallium driver, 
-this causes my driver to not function properly. Workaround:
-use non-Gallium driver:
-Oneiric : export LIBGL_DRIVERS_PATH=/usr/lib/i386-linux-gnu/dri-alternates
-Natty : export LIBGL_DRIVERS_PATH=/usr/lib32/dri-alternates
-
+Code is confirmed to work on both i386 and amd64 with:
+ - Radeon r600 classic driver, Mesa 7.11+ (Oneiric stock)
+ - Radeon r600 Gallium driver, Mesa 7.11+ with patch from 
+    https://bugs.freedesktop.org/show_bug.cgi?id=42435
+ - llvmpipe, Mesa 7.11+  (gallium software renderer)
+ - i965 (Sandy Bridge), Mesa 7.12+ (from xorg-edgers)
+ - nvidia and fglrx proprietary drivers
+ 
 Specific graphics hardware and driver requirements are  output on each run, 
 so you will see if your box is not up to the task. 
 You can check out which cards are capable of what at http://www.kludx.com/
-
 
 Features not found in other renderers:
 ======================================
@@ -65,22 +56,27 @@ Features not found in other renderers:
    This requires one pass over the screen and screentexpos arrays 
    and maintenance of 'shadow' screen_underlay array. 
    grid_x*grid_y int32 compares and some amount of int32 writes per frame.
-   This feature is broken at the moment.
+   [WW] This feature is broken at the moment.
 
 init.txt tokens specific to this renderer:
 
 [PRINT_MODE:SHADER] - enables the renderer 
 [VERTEX_SHADER:data/vertex.shader] - override embedded shader code
 [FRAGMENT_SHADER:data/fragment.shader] - same for fragment shader
-[SHADER_SET:standard] embedded shader set name. Name list is output at startup.
-[DUMP_STUFF:0] - control screen and texture dumping.
+[SHADER_SET:cbr_is_bold] embedded shader set name. Name list is output at startup.
+[DUMP_STUFF:0:dumprefix] - control screen and texture dumping.
     0 - no dumping
     N - dumps texture on upload to the GPU, 
         dumps complete screen data every Nth frame
-[DUMP_TO:blahblah] - sets prefix for dumps. Default: "dfdump"
+    second parameter is the prefix for dumps.
 [SNAP_WINDOW:NO]  snap window size to not leave black margins (resize only)
 [USE_UNDERLAY:NO]  attempt to remember the floor tile under creatures
 [DUMP_CREATURES:NO] dump creature draw data to stderr
+[FADE_IN:0] fade in screen on startup and on game load, value in milliseconds.
+            Default: 0 = disabled
+[GL_CLEAR_COLOR:0] background color to detect resize/zoom/viewport bugs, also
+            the color the fade in fades in from. Value: index into ansi colors.
+            Default: 0 = black.
 
 Project needs:
 ==============
@@ -138,8 +134,6 @@ There's new Eclipse build target for this : native-oneiric-debug.
 
 Eclipse CDT sucks.
 
-Stuff below is applicable to Natty 64bit without multi-arch enabled.
-
 How to do it on Ubuntu Natty 64bit:
 
 0. Get Eclipse Indigo with CDT (eclipse.org). 
@@ -148,40 +142,42 @@ Use the XC-Debug build target.
 
 1. You will need development packages (-dev) for gtk2.0, libSDL 1.2, 
 libSDL_ttf-2.0, libSDL_image-1.2, libsndfile, OpenAL, Mesa.
-You will also need ia32-libs package.
+You will also need ia32-libs package. If you don't use proprietary
+drivers, you may need to install xorg-edgers Mesa/Xorg. 
+See https://launchpad.net/~xorg-edgers/+archive/ppa
 
-2. libGLEW1.5 is not included in ia32-libs package, so you will need to fetch
-i386 package from a mirror:
+2. Enable multi-arch support and install various Mesa bits:
 
-wget http://mirror.yandex.ru/ubuntu/pool/main/g/glew1.5/libglew1.5_1.5.7.is.1.5.2-1ubuntu4_i386.deb
+    echo foreign-architecture i386 >/etc/dpkg/dpkg.cfg.d/multiarch
+
+Check that this won't break your system:
+    
+    apt-get install -s libgl1-mesa-dri:i386  libgl1-mesa-glx:i386 libglu1-mesa:i386 libgl1-mesa-dri-experimental:i386
+    
+If apt-get wants to remove a bunch of packages, something's seriously broken. Proceed at your own risk.
+
+    apt-get install libgl1-mesa-dri:i386  libgl1-mesa-glx:i386 libglu1-mesa:i386 libgl1-mesa-dri-experimental:i386
+
+3. Install stuff from packages that have multiarch broken: libglew1.5 and libglib2.0-dev
+
+    wget http://mirror.yandex.ru/ubuntu/pool/main/g/glew1.5/libglew1.5_1.5.7.is.1.5.2-1ubuntu4_i386.deb
+    wget http://mirror.yandex.ru/ubuntu/pool/main/g/glib2.0/libglib2.0-dev_2.28.6-0ubuntu1_i386.deb
 
 Do not install it. Instead, decompress with dpkg-deb:
 
-dpkg-deb -x libglew1.5_1.5.7.is.1.5.2-1ubuntu4_i386.deb glew32
+    dpkg-deb -x libglew1.5_1.5.7.is.1.5.2-1ubuntu4_i386.deb glew32
+    dpkg-deb -x libglib2.0-dev_2.28.6-0ubuntu1_i386.deb glib32
 
-and put library files into /usr/lib32:
+And put library files into /usr/lib32:
 
-ln -s  libGLEW.so.1.5 glew32/usr/lib/libGLEW.so
-sudo chown 0:0 glew32/usr/lib/libGLEW.so*
-sudo mv glew32/usr/lib/libGLEW.so* /usr/lib32
+    ln -s  libGLEW.so.1.5 glew32/usr/lib/libGLEW.so
+    sudo chown 0:0 glew32/usr/lib/libGLEW.so*
+    sudo mv glew32/usr/lib/libGLEW.so* /usr/lib32
 
-3. glibconfig.h This file is architecture-specific, so do not use the one in 
-/usr/lib/x86_64-linux-gnu/glib-2.0/include/ - the x86_64 is in the path for a reason.
-Instead fetch -dev package for i386:
-
-wget http://mirror.yandex.ru/ubuntu/pool/main/g/glib2.0/libglib2.0-dev_2.28.6-0ubuntu1_i386.deb
-
-decompress:
-
-dpkg-deb -x libglib2.0-dev_2.28.6-0ubuntu1_i386.deb glib32
-
-and put the glibconfig.h from glib32 somewhere. Then point Eclipse 
+Put the glibconfig.h from glib32 somewhere. Then point Eclipse 
 (project->properties->C/C++Build->Settings->GCC C++ Compiler->Includes)
-there.
-
-4. final step:
-sudo ln -s /usr/lib32/libgcc_s.so.1 /usr/lib/x86_64-linux-gnu/gcc/x86_64-linux-gnu/4.5/32/libgcc_s.so
-
+there. (I put it into /home/lxnt/include32):
+    mv glib32/usr/lib/i386-linux-gnu/glib-2.0/include/glibconfig.h ~/include32/
 
 Now you are more or less ready to hit Ctrl-B.
 
@@ -189,14 +185,17 @@ Now you are more or less ready to hit Ctrl-B.
 Running it on x86_64 system.
 ============================
 
+0. Do the steps for cross compilation skipping the development packages and glibconfig.h
+
 1. If you use open source graphics drivers, put  
 
-Oneiric : export LIBGL_DRIVERS_PATH=/usr/lib/i386-linux-gnu/dri-alternates
-Natty-no-multiarch : export LIBGL_DRIVERS_PATH=/usr/lib32/dri-alternates
+export LD_LIBRARY_PATH=/usr/lib/i386-linux-gnu/:/usr/lib/i386-linux-gnu/mesa
+export LIBGL_DRIVERS_PATH=/usr/lib/i386-linux-gnu/dri
 
 into the ./df script. This selects classic Mesa (non-Gallium)
-drivers. Gallium ones that ship with Ubuntu ia32-libs are outdated
-and do not contain needed bugfixes, which can't be said of new bugs.
+drivers. If you have a Radeon and don't have Mesa patched for bug 42435,
+try 
+export LIBGL_DRIVERS_PATH=/usr/lib/i386-linux-gnu/dri-alternates
 
 2. You can delete/rename  libstdc++.so.6 and libgcc_s.so.1
 that are in df_linux/libs directory - system ones work fine,

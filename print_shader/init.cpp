@@ -107,10 +107,23 @@ void initst::begin()
 					{
 					display.desired_fullscreen_height=convert_string_to_long(token2);
 					}
-				if (token=="DUMP_STUFF")
+				if (token=="FADE_IN")
+					glsl_conf.fade_in = convert_string_to_long(token2);
+				if (token=="DUMP_STUFF") {
 					glsl_conf.dump_stuff = convert_string_to_long(token2);
-				if (token=="DUMP_TO")
-					glsl_conf.dump_pfx = token2;
+					if (glsl_conf.dump_stuff > 0) {
+						string token3;
+						if(str.length()>=token.length()+token2.length()+3) {
+							grab_token_string_pos(token3,str,token.length()+token2.length()+3);
+							glsl_conf.dump_pfx = token3;
+						} else
+							glsl_conf.dump_stuff = 0;
+					}
+				}
+				if (token=="GL_CLEAR_COLOR")
+					glsl_conf.glclearcolor = convert_string_to_long(token2);
+				if (token=="FADE_IN")
+					glsl_conf.fade_in = convert_string_to_long(token2);
 				if (token=="VERTEX_SHADER")
 					glsl_conf.vs_path = token2;
 				if (token=="FRAGMENT_SHADER")
