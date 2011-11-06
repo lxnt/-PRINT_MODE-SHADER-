@@ -759,15 +759,22 @@ namespace std {
 
 struct texdumpst {
 	SDL_Surface *cats;
-	std::set<long> gray;
-	std::set<long> cloned;
-	int count, w_t, h_t, limit;
-	Uint16 w, h, t_w, t_h;
+	GLubyte *tile_sizes; // a texture, actually, stride=8, 2 last: unused
+	int tilecount;
+	int tiletotal;
+	std::vector<SDL_Surface *> *raws;
+	int w_t, h_t; // tex size in tiles
+	int max_tw, max_th; // tile grid step aka max tile sizes.
+	int t1_w, t1_h; // first tile sizes - for aspect ratio calc
 	bool finished;
+
+	std::set<long> gray;   // was <pos> grayscaled?
+	std::set<long> cloned; // was <pos> cloned?
+
 	texdumpst();
-	bool init(int rawcount, Uint16, Uint16);
-	bool add(SDL_Surface *tex, long pos);
-	SDL_Surface *get();
+	void eat(std::vector<SDL_Surface *> *); // called on reset_textures; short-circuited to avoid excessive blits
+	void update(); // copy raws into cats; set up tile_sizes;
+	void dump(const char *, int);
 };
 
 struct glsl_configst {

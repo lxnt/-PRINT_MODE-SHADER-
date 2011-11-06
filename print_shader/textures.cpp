@@ -3,6 +3,9 @@
 
 #include "enabler.h"
 #include "init.h"
+#include <SDL/begin_code.h>
+#include "IMG_savepng.h"
+
 
 // Used to sort textures
 struct vsize_pos {
@@ -38,32 +41,45 @@ texdumpst::texdumpst() {
 	cats = NULL;
 }
 
-bool texdumpst::init(int rawcount, Uint16 tile_w, Uint16 tile_h) {
-	t_w = tile_w;
-	t_h = tile_h;
-	count = 0;
-	w_t = sqrt(rawcount) + 1;
-	h_t = rawcount/w_t + 1;
-	h = t_h*h_t;
-	w = t_w*w_t;
-	limit = w_t*h_t;
+void texdumpst::eat(std::vector<SDL_Surface *> *r) {
+	raws = r;
+}
+
+void texdumpst::update() {
 	if (cats)
 		SDL_FreeSurface(cats);
+	if (tile_sizes)
+		free(tile_sizes);
+
+	max_tw = max_th = 0;
+
+	for (std::vector<SDL_Surface *>::iterator it = raws->begin(); it != raws->end(); ++it) {
+		if ((*it)->w > max_tw) max_tw = (*it)->w;
+		if ((*it)->h > max_th) max_th = (*it)->h;
+	}
+	const int texture_width = 2048; // in fact can be 4096, but ...
+	w_t = texture_width / max_tw;
+	h_t = raws->size() / w_t + 1;
+	Uint16 texw = w_t*max_tw, texh = h_t*max_th;
+
+	int ts_size = w_t*h_t * 4 * sizeof(GLubyte);
+	tile_sizes = (GLubyte *)malloc(ts_size);
+	memset(tile_sizes, 0, ts_size);
+
+
 	GLuint gl_test[1];
-	fputsGLError(stderr);
 	glGenTextures(1, gl_test);
 	fputsGLError(stderr);
-	if (!testTextureSize(gl_test[0], w, h)) {
-		std::cerr<<"texdumpst::init(): GPU does not support "<<w<<"x"<<h<<" textures.\n";
+	if (!testTextureSize(gl_test[0], texw, texh)) {
+		fprintf(stderr, "texdumpst::init(): GPU does not support %dx%d textures.\n", texw, texh);
 		glDeleteTextures(1, gl_test);
 		fputsGLError(stderr);
-		return false;
+		return;
 	}
 	glDeleteTextures(1, gl_test);
 	fputsGLError(stderr);
-	fprintf(stderr, "texdumpst::init(): allocating %dx%d limit=%d (%dx%d cells)\n",
-			w, h, limit, t_w, t_h);
 
+	fprintf(stderr, "texdumpst::init(): allocating %dx%d (max %dx%d %dx%d cells)\n", texw, texh, w_t, h_t, max_tw, max_th);
 
 #if SDL_BYTEORDER == SDL_BIG_ENDIAN
 Uint32 rmask = 0xff000000;
@@ -76,43 +92,50 @@ Uint32 gmask = 0x0000ff00;
 Uint32 bmask = 0x00ff0000;
 Uint32 amask = 0xff000000;
 #endif
-  cats = SDL_CreateRGBSurface(SDL_SWSURFACE, w, h,
+	cats = SDL_CreateRGBSurface(SDL_SWSURFACE, texw, texh,
 		  32, rmask, gmask, bmask, amask );
-  SDL_Rect rect = { 0, 0, w, h };
-  SDL_FillRect(cats, &rect, SDL_MapRGBA(cats->format, 0, 0, 0, 255));
-  count = 0;
-  finished = false;
-  return true;
+	SDL_Rect rect = { 0, 0, texw, texh };
+	SDL_FillRect(cats, &rect, SDL_MapRGBA(cats->format, 0, 0, 0, 0));
+
+	int pos = 0;
+	int x, y;
+	for (std::vector<SDL_Surface *>::iterator it = raws->begin(); it != raws->end(); ++it) {
+		if (*it) {
+			if (pos == 1) {
+				t1_w = (*it)->w;
+				t1_h = (*it)->h;
+			}
+			x = (pos % w_t) * max_tw;
+			y = (pos / w_t) * max_th;
+			tile_sizes[4*pos + 0] = (*it)->w;
+			tile_sizes[4*pos + 1] = (*it)->h;
+			SDL_Rect dstrect = { (Sint16)x, (Sint16)y , 0, 0 };
+			SDL_Rect srcrect = { 0, 0, (Uint16)(*it)->w, (Uint16)(*it)->h };
+			SDL_SetAlpha(*it, 0, SDL_ALPHA_OPAQUE);
+			if (0 > SDL_BlitSurface(*it, &srcrect, cats, &dstrect)) {
+				fprintf(stderr, "SDL_BlitSurface(): %s\n", SDL_GetError());
+				exit(1);
+			}
+		}
+		pos ++;
+	}
 }
 
-bool texdumpst::add(SDL_Surface *tex, long pos) {
-	if (count > limit) {
-		std::cerr<<"texdumpst::add(): tile limit reached, next time request bigger size\n";
-		return false;
-	}
-	Uint16 rw = tex->w, rh = tex->h;
-	if (rw > t_w)
-		rw = t_w;
-	if (rh > t_h)
-		rh = t_h;
+void texdumpst::dump(const char *dump_pfx, int texture_generation) {
+	char fname[4096];
+	snprintf(fname, 4096, "%s%04d.png", dump_pfx, texture_generation);
+	IMG_SavePNG(fname, cats, 9);
+	fprintf(stderr,"texdumpst::dump(): %dx%d pixels went to %s\n", cats->w, cats->h, fname);
+	snprintf(fname, 4096, "%s%04d.tsz", dump_pfx, texture_generation);
+	std::ofstream f(fname, std::ios::binary);
+	struct _tsz_hdr {
+		int w_t, h_t, max_tw, max_th;
+	} hdr = { w_t, h_t, max_tw, max_th };
+	f.write((char *)&hdr, sizeof(hdr));
+	f.write((char *)tile_sizes, w_t*h_t*4);
+	f.close();
+	fprintf(stderr,"texdumpst::dump(): %d tilesizes went to %s\n", w_t*h_t, fname);
 
-	Sint16 x,y;
-	count++;
-	x = (pos % w_t) * t_w;
-	y = (pos / w_t) * t_h;
-	SDL_Rect dstrect = {x, y , 0, 0 };
-	SDL_Rect srcrect = { 0, 0, rw, rh };
-	SDL_SetAlpha(tex, 0, SDL_ALPHA_OPAQUE);
-	if (0 > SDL_BlitSurface(tex, &srcrect, cats, &dstrect)) {
-		std::cerr<<"blit failed.\n";
-		return false;
-	}
-	return true;
-}
-
-SDL_Surface *texdumpst::get() {
-	std::cerr<<"handed off cats with "<<count<<" tiles. ("<<w_t<<"x"<<h_t<<").\n";
-	return cats;
 }
 
 texdumpst texdumper;
@@ -120,17 +143,10 @@ texdumpst texdumper;
 // Texture catalog implementation
 void textures::upload_textures() {
   if (init.display.flag.has_flag(INIT_DISPLAY_FLAG_SHADER)) {
-	  long pos = 0;
-	  texdumper.init(raws.size(), raws[0]->w, raws[0]->h); // tile size defined by the first raw: usually chr(0)
-	  for (std::vector<SDL_Surface *>::iterator it = raws.begin(); it != raws.end(); ++it) {
-		  if (*it)
-			texdumper.add(*it, pos);
-		  pos ++;
-	  }
-	  uploaded = false; // Muahahahaha
-	  return;
+	// ugly hack, but whoever designed texture class interface can't complain.
+	texdumper.eat(&raws);
+	uploaded = true; // Muahahahaha
   }
-
   if (uploaded) return; // Don't bother
   if (!enabler.uses_opengl()) return; // No uploading
 

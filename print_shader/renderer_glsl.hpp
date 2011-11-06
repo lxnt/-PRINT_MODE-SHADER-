@@ -1,5 +1,4 @@
 #include "zlib.h"
-#include "IMG_savepng.h"
 
 #include "shaders.c"
 
@@ -16,6 +15,7 @@ class renderer_glsl : public renderer {
 	enum uniforms {
 		FONT_SAMPLER,
 		ANSI_SAMPLER,
+		TXCO_SAMPLER,
 		TXSZ,
 		FINAL_ALPHA,
 		PSZAR,
@@ -31,6 +31,7 @@ class renderer_glsl : public renderer {
 		CF,
 		CBR,
 		POSITION,
+		TEXCOORDS,
 
 		LAST_ATTR
 	};
@@ -43,6 +44,7 @@ class renderer_glsl : public renderer {
 	enum textures {
 		FONT,
 		ANSI,
+		TXCO,
 
 		LAST_TEX
 	};
@@ -53,18 +55,19 @@ class renderer_glsl : public renderer {
 	GLint  unif_loc[LAST_UNIF];
 	GLuint shader;
 	GLint txsz_w, txsz_h; 		// texture size in tiles
-	GLint tile_w, tile_h;		// tile size in texels
+	GLint tile_w, tile_h;		// texture cell size in texels (actual graphic may be smaller)
 	GLfloat *grid;
 	GLsizeiptr grid_bo_size;	// size of currently used BO
 	GLint grid_tile_count; 		// and in tiles
 	GLint grid_w, grid_h;		// and again in tiles
 	int Pszx, Pszy, Psz;		// Point sprite size as drawn
 	SDL_Surface *surface;
+    GLfloat *tilesizes;         // tile sizes: a texture. dimensions eq txsz_w x txsz_h.
+	int texture_generation;     // screen dumper uses this
+	void *dump_buffer;          // its internals
 
-	int texture_generation;     // screen dumper
-	void *dump_buffer;          // internals
-
-	unsigned char *screen; // ULoD: an ugly lump of data.
+	unsigned char *screen;      // ULoD: an ugly lump of data.
+	unsigned char *_screen_unaligned;
 	GLsizeiptr screen_bo_size;
 	struct _bo_offset {
 		GLsizei screen; // should be 0 at all times, but ...
@@ -141,7 +144,6 @@ class renderer_glsl : public renderer {
 #endif
 			}
 	}
-
 	void record_crea(int i) {
 		char c,g;
 		long texpos = *(long*)index_u32(i, bo_offset.texpos);
@@ -170,8 +172,13 @@ class renderer_glsl : public renderer {
 		do_update_attrs = true;
 	}
 	void ulod_allocate(int x, int y) {
-		if (!screen)
-			screen = (unsigned char *) malloc(sizeof_screen);
+		if (!_screen_unaligned) {
+			_screen_unaligned = (unsigned char *) malloc(sizeof_screen + 4096);
+			/* make sure the ULoD starts on page boundary. */
+			ptrdiff_t screen_v = (ptrdiff_t)_screen_unaligned;
+			int page_align = ( 0x1000 - ( screen_v & 0xFFF));
+			screen = _screen_unaligned + page_align;
+		}
 
 		screen_bo_size = sizeof_tile*x*y;
 
@@ -277,24 +284,28 @@ class renderer_glsl : public renderer {
 		glLoadIdentity();
 		glMatrixMode(GL_MODELVIEW);
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_1D, tex_id[ANSI]);
-		glTexImage1D(GL_TEXTURE_1D, 0, GL_RGBA, 16, 0, GL_RGBA, GL_FLOAT, ansi_stuff);
-		glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-		glTexParameterf(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameterf(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glBindTexture(GL_TEXTURE_2D, tex_id[ANSI]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 16, 16, 0, GL_RGBA, GL_FLOAT, ansi_stuff);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 		fprintf(stderr, "makeansitex(): %d.\n", tex_id[ANSI]);
 	}
 	void texture_reset() {
-		SDL_Surface *cats = texdumper.get();
-		if (!cats) {
+		if (!texdumper.raws) {
 			texture_ready = false;
 			return; // just skip if there's nothing to use
 		}
+		texdumper.update();
+		SDL_Surface *cats = texdumper.cats;
+
+		glActiveTexture(GL_TEXTURE1);
 	    glMatrixMode(GL_TEXTURE);
 	    glLoadIdentity();
 	    glMatrixMode(GL_MODELVIEW);
 		fputsGLError(stderr);
-		glActiveTexture(GL_TEXTURE1);
+
 		glBindTexture(GL_TEXTURE_2D, tex_id[FONT]);
 		fputsGLError(stderr);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cats->w, cats->h,
@@ -308,21 +319,50 @@ class renderer_glsl : public renderer {
 		fputsGLError(stderr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, glsl_conf.texture_filter);
 		fputsGLError(stderr);
-		bool reshape_required = (  (tile_w != texdumper.t_w) || (tile_h != texdumper.t_h) );
+
+		glActiveTexture(GL_TEXTURE2);
+		glMatrixMode(GL_TEXTURE);
+		glLoadIdentity();
+		glMatrixMode(GL_MODELVIEW);
+		fputsGLError(stderr);
+
+		glBindTexture(GL_TEXTURE_2D, tex_id[TXCO]);
+		fputsGLError(stderr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, texdumper.w_t, texdumper.h_t,
+				0, GL_RGBA, GL_UNSIGNED_BYTE, texdumper.tile_sizes);
+		fputsGLError(stderr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		fputsGLError(stderr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		fputsGLError(stderr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		fputsGLError(stderr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		fputsGLError(stderr);
+
+		bool reshape_required = (  (tile_w != texdumper.t1_w) || (tile_h != texdumper.t1_h) );
 		txsz_w = texdumper.w_t;
 		txsz_h = texdumper.h_t;
-		tile_w = texdumper.t_w;
-		tile_h = texdumper.t_h;
-		glUniform2f(unif_loc[TXSZ], txsz_w, txsz_h);
+		tile_w = texdumper.max_tw;
+		tile_h = texdumper.max_th;
+		glUniform4f(unif_loc[TXSZ], txsz_w, txsz_h, tile_w, tile_h);
 		fputsGLError(stderr);
-		fprintf(stderr, "accepted font texture (name=%d): %dx%dpx oa\n",
-				tex_id[FONT], cats->w, cats->h);
+		fprintf(stderr, "accepted font texture (name=%d): %dx%dpx oa\n", tex_id[FONT], cats->w, cats->h);
+		fprintf(stderr, "accepted txco texture (name=%d): %dx%dpx oa\n", tex_id[TXCO], txsz_w, txsz_h);
 		if (glsl_conf.dump_stuff > 0)
-			dump_texture(cats);
+			texdumper.dump(glsl_conf.dump_pfx.c_str(), texture_generation);
 		texture_generation ++;
 		texture_ready = true;
 		if (reshape_required)
 			reshape();
+	}
+	void rebind_textures() {
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, tex_id[ANSI]);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, tex_id[FONT]);
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, tex_id[TXCO]);
 	}
 	bool shader_status(GLuint fsvs, GLenum pname) {
 		GLint param;
@@ -464,8 +504,12 @@ class renderer_glsl : public renderer {
 		glDeleteShader(f_sh);
 		fputsGLError(stderr);
 
-		unif_loc[FONT_SAMPLER]	= glGetUniformLocation(shader, "font");
+		makeansitex();
+
+
 		unif_loc[ANSI_SAMPLER]	= glGetUniformLocation(shader, "ansi");
+		unif_loc[FONT_SAMPLER]	= glGetUniformLocation(shader, "font");
+		unif_loc[TXCO_SAMPLER]	= glGetUniformLocation(shader, "txco");
 		unif_loc[TXSZ]			= glGetUniformLocation(shader, "txsz");
 		unif_loc[FINAL_ALPHA]   = glGetUniformLocation(shader, "final_alpha");
 		unif_loc[PSZAR] 	    = glGetUniformLocation(shader, "pszar");
@@ -496,9 +540,11 @@ class renderer_glsl : public renderer {
 		glEnableVertexAttribArray(attr_loc[POSITION]);
 		fputsGLError(stderr);
 
-		glUniform1i(unif_loc[ANSI], 0); 		// GL_TEXTURE0 : ansi color strip
-		glUniform1i(unif_loc[FONT], 1); 		// GL_TEXTURE1 : font
+		glUniform1i(unif_loc[ANSI_SAMPLER], 0); 		// GL_TEXTURE0 : ansi color strip
+		glUniform1i(unif_loc[FONT_SAMPLER], 1); 		// GL_TEXTURE1 : font
+		glUniform1i(unif_loc[TXCO_SAMPLER], 2); 		// GL_TEXTURE2 : tile sizes
 		glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
+		glUniform2f(unif_loc[VIEWPOINT], 0.0, 0.0);
 		fputsGLError(stderr);
 		/* note: TXSZ and POINTSIZE/PAR are not bound yet. */
 	}
@@ -506,7 +552,8 @@ class renderer_glsl : public renderer {
 		glDeleteProgram(shader); // frees all the stuff
 		shader_setup();
 		do_update_attrs = true;
-		glUniform2f(unif_loc[TXSZ], txsz_w, txsz_h);
+		glUniform4f(unif_loc[TXSZ], txsz_w, txsz_h, tile_h, tile_w);
+		fputsGLError(stderr);
 		reshape(grid_w, grid_h); // update PSZAR
 	}
 	void set_viewport() {
@@ -521,10 +568,24 @@ class renderer_glsl : public renderer {
 		glMatrixMode( GL_MODELVIEW);
 		glLoadIdentity();
 		glClearColor(0.3, 0.0, 0.0, 1.0);
-		glClear( GL_COLOR_BUFFER_BIT);
+		glClear(GL_COLOR_BUFFER_BIT);
 		fputsGLError(stderr);
 	}
 	void opengl_vital_parameters() {
+		struct {
+			GLenum pname;
+			const char *name;
+		} _gls[] = {
+			{ GL_VENDOR, "vendor" },
+			{ GL_RENDERER, "renderer" },
+			{ GL_VERSION, "version" },
+			{ GL_SHADING_LANGUAGE_VERSION, "GLSL version" },
+			{  },
+
+		}, *gls = _gls;
+		while (gls->name)
+			fprintf(stderr, "OpenGL %s: %s\n", gls->name, glGetString( gls->pname)), gls++;
+
 		struct {
 			GLint needed;
 			GLenum pname;
@@ -534,11 +595,11 @@ class renderer_glsl : public renderer {
 			{  7, GL_MAX_VERTEX_UNIFORM_COMPONENTS, "GL_MAX_VERTEX_UNIFORM_COMPONENTS" }, // single-component values
 			{  6, GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, "GL_MAX_FRAGMENT_UNIFORM_COMPONENTS" }, // same as above
 			{  1, GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, "GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS" }, // samplers in vert shader
-			{  1, GL_MAX_TEXTURE_IMAGE_UNITS, "GL_MAX_TEXTURE_IMAGE_UNITS" },  // samplers in frag shader
-			{ 20, GL_MAX_VARYING_FLOATS, "GL_MAX_VARYING_FLOATS" }, // 4 varying_floats = 1 texture_coord?
-			{  5, GL_MAX_TEXTURE_COORDS, "GL_MAX_TEXTURE_COORDS" }, // 1 texture_coord = 4 varying_floats?
+			{  2, GL_MAX_TEXTURE_IMAGE_UNITS, "GL_MAX_TEXTURE_IMAGE_UNITS" },  // samplers in frag shader
+			{ 12, GL_MAX_VARYING_FLOATS, "GL_MAX_VARYING_FLOATS" }, // 4 varying_floats = 1 texture_coord?
+			{  3, GL_MAX_TEXTURE_COORDS, "GL_MAX_TEXTURE_COORDS" }, // 1 texture_coord = 4 varying_floats?
 			{ -4, GL_POINT_SIZE_MIN, "GL_POINT_SIZE_MIN" },
-			{ 63, GL_POINT_SIZE_MAX, "GL_POINT_SIZE_MAX" }, // no idea of our requirements
+			{ 64, GL_POINT_SIZE_MAX, "GL_POINT_SIZE_MAX" }, // no idea of our requirements
 			{  },
 		}, *vp = _vp;
 		while (vp->name) {
@@ -551,7 +612,13 @@ class renderer_glsl : public renderer {
 		}
 	}
 	void opengl_init() {
-		glewInit();
+		GLenum err = glewInit();
+		if (GLEW_OK != err) {
+		  fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
+		  exit(1);
+		}
+		fprintf(stderr, "GLEW: %s\n", glewGetString(GLEW_VERSION));
+
 		opengl_vital_parameters();
 		glGenTextures(LAST_TEX, tex_id);
 		glGenBuffers(LAST_BO, vbo_id);
@@ -567,13 +634,11 @@ class renderer_glsl : public renderer {
 		GLint param = GL_UPPER_LEFT;
 		glPointParameteriv(GL_POINT_SPRITE_COORD_ORIGIN, &param);
 
+		makeansitex();
+		texture_reset();
 
 		fputsGLError(stderr);
 		shader_setup();
-		fputsGLError(stderr);
-		makeansitex();
-		fputsGLError(stderr);
-		texture_reset();
 		fputsGLError(stderr);
 		opengl_initialized = true;
 	}
@@ -592,6 +657,7 @@ class renderer_glsl : public renderer {
 
 		glBindBuffer(GL_ARRAY_BUFFER, vbo_id[ULOD_BO]);
 		fputsGLError(stderr);
+
 		glBufferData(GL_ARRAY_BUFFER, screen_bo_size, screen, GL_STREAM_DRAW);
 		fputsGLError(stderr);
 
@@ -770,13 +836,6 @@ class renderer_glsl : public renderer {
 		}
 		reshape(new_grid_w, new_grid_h, new_window_w, new_window_h, toggle_fullscreen);
 	}
-
-	void dump_texture(SDL_Surface *cats) {
-		char fname[4096];
-		snprintf(fname, 4096, "%s%04d.png", glsl_conf.dump_pfx.c_str(), texture_generation);
-		IMG_SavePNG(fname, cats, 9);
-		fprintf(stderr,"dump_texture: %dx%d pixels went to %s\n", cats->w, cats->h, fname);
-	}
 	void dump_screen() {
 		char fname[4096];
 		snprintf(fname, 4096, "%s.sdump", glsl_conf.dump_pfx.c_str());
@@ -788,7 +847,7 @@ class renderer_glsl : public renderer {
 			struct _bo_offset bo_offset;
 			size_t data_len; // compressed data size that follows this struct
 			GLint grid_w, grid_h;		// and again in tiles
-			int Pszx, Pszy;				// Point sprite size as drawn
+			int Pszx, Pszy, Psz;			// Point sprite size as drawn
 			int viewport_offset_x, viewport_offset_y; // viewport tracking
 			int viewport_w, viewport_h;               // for mouse coordinate transformation
 			int surface_w, surface_h;		// window dimensions
@@ -800,11 +859,11 @@ class renderer_glsl : public renderer {
 
 		memmove(&hdr.bo_offset, &bo_offset, sizeof(struct _bo_offset));
 		hdr.grid_w = grid_w; hdr.grid_h = grid_h;
-		hdr.Pszx = Pszx; hdr.Pszy = Pszy;
+		hdr.Pszx = Pszx; hdr.Pszy = Pszy;  hdr.Psz = Psz;
 		hdr.surface_w = surface->w; hdr.surface_h = surface->h;
 		hdr.txsz_w = txsz_w; hdr.txsz_h = txsz_h;
 		hdr.tile_w = tile_w; hdr.tile_h = tile_h;
-		hdr.texture_generation = texture_generation;
+		hdr.texture_generation = texture_generation - 1;
 		hdr.frame_number = f_counter;
 
 		uLongf destLen = sizeof_screen;
@@ -819,7 +878,8 @@ class renderer_glsl : public renderer {
 		f.write((char *)(&hdr), sizeof(struct _dump_header));
 		f.write((char *)(dump_buffer), destLen);
 		f.close();
-		fprintf(stderr, "dump_screen(): frame %d: %ld bytes\n", f_counter, destLen + sizeof(struct _dump_header));
+		fprintf(stderr, "dump_screen(): frame %d: %ld bytes (compressed %ld->%ld + %d)\n",
+				f_counter, destLen + sizeof(struct _dump_header), sourceLen, destLen, sizeof(struct _dump_header));
 	}
 
 public:
@@ -827,14 +887,20 @@ public:
 	virtual void update_tile(int x, int y)  { if (1) std::cerr<<"update_tile(): do not need.\n"; }
 	virtual void update_all() 				{ reload_shaders(); } // ugly overload :)
 	virtual void render() {
+#if 0
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_1D, tex_id[ANSI]);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, tex_id[FONT]);
-		glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
-		glClearColor(0.0, 0.0, 0.0, 1);
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_1D, tex_id[TXCO]);
+		//glUniform1f(unif_loc[FINAL_ALPHA], 1.0);
+#endif
+		glClearColor(0.0, 0.5, 0.0, 1);
 		glClear(GL_COLOR_BUFFER_BIT);
+		fputsGLError(stderr);
 		update_vbos();
+		rebind_textures();
 		glDrawArrays(GL_POINTS, 0, grid_tile_count);
 		fputsGLError(stderr);
 		if (do_swap)
@@ -916,10 +982,13 @@ public:
 		texture_ready = false;
 		tile_w = 0;
 		tile_h = 0;
+		grid_w = 0;
+		grid_h = 0;
 		grid = NULL;
-		screen = NULL;
+		_screen_unaligned = NULL;
 		texture_generation = 0;
 		dump_buffer = NULL;
+		surface = NULL;
 
 		char sdl_videodriver[256];
 		if (NULL == SDL_VideoDriverName(sdl_videodriver, sizeof(sdl_videodriver)))
@@ -981,6 +1050,9 @@ public:
 			report_error("SDL initialization failure", SDL_GetError());
 			exit(EXIT_FAILURE);
 		}
+		gps_allocate(MIN_GRID_X, MIN_GRID_Y);
+		Pszx = surface->w/MIN_GRID_X; // so that get_mousecoords don't
+		Pszy = surface->h/MIN_GRID_Y; // divide by zero.
 	}
 	virtual bool get_mouse_coords(int &x, int &y) {
 		int mouse_x, mouse_y;
