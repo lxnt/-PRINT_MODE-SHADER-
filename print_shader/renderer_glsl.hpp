@@ -718,6 +718,11 @@ class renderer_glsl : public renderer {
 		if (new_window_h < 0)
 			new_window_h = surface->h;
 
+		if (Psz < 0) { //der kludge for the first-time reshape triggered by the first texture_reset()
+			new_grid_w = new_window_w/tile_w;
+			new_grid_h = new_window_h/tile_h;
+		}
+
 		/*  clamp requested grid size */
 		new_grid_w = MIN(MAX(new_grid_w, MIN_GRID_X), MAX_GRID_X);
 		new_grid_h= MIN(MAX(new_grid_h, MIN_GRID_Y), MAX_GRID_Y);
@@ -839,9 +844,16 @@ class renderer_glsl : public renderer {
 			new_grid_w = grid_w;
 			new_grid_h = grid_h;
 		} else {
-			// approximately preserve existing zoom
-			new_grid_w = new_window_w / ( surface->w / grid_w );
-			new_grid_h = new_window_h / ( surface->h / grid_h );
+			if (Psz < MAX(tile_w, tile_h)) {
+				// zoom in until tiles are pixel-for-pixel
+				Psz = MAX(tile_w, tile_h);
+				new_grid_w = new_window_w / tile_w;
+				new_grid_h = new_window_h / tile_h;
+			} else {
+				// approximately preserve existing zoom
+				new_grid_w = new_window_w / ( surface->w / grid_w );
+				new_grid_h = new_window_h / ( surface->h / grid_h );
+			}
 		}
 		reshape(new_grid_w, new_grid_h, new_window_w, new_window_h, toggle_fullscreen);
 	}
@@ -1042,6 +1054,7 @@ public:
 		last_frame_start_ts = 0;
 		print_rendertime_at = 0;
 		fadein_finish_at = 0;
+		Psz = -8;
 
 		char sdl_videodriver[256];
 		if (NULL == SDL_VideoDriverName(sdl_videodriver, sizeof(sdl_videodriver)))
