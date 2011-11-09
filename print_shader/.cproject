@@ -226,6 +226,7 @@
 								<option id="gnu.cpp.compiler.option.other.verbose.614940331" name="Verbose (-v)" superClass="gnu.cpp.compiler.option.other.verbose" value="true" valueType="boolean"/>
 								<option id="gnu.cpp.compiler.option.preprocessor.def.1588685967" name="Defined symbols (-D)" superClass="gnu.cpp.compiler.option.preprocessor.def" valueType="definedSymbols">
 									<listOptionValue builtIn="false" value="_GNU_SOURCE=1"/>
+									<listOptionValue builtIn="false" value="ORIGST=4223"/>
 									<listOptionValue builtIn="false" value="unix=42"/>
 									<listOptionValue builtIn="false" value="linux=23"/>
 									<listOptionValue builtIn="false" value="_REENTRANT"/>

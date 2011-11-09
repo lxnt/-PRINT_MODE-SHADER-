@@ -36,147 +36,194 @@ enum Texture
 // This type denotes a tile that is covered by truetype, but is not the tile it starts on.
 #define GRAPHICSTYPE_TTFCONT 0xfe
 
+class newgst {
+public:
+	void changecolor(short f,short b,char bright);
+	void addchar(unsigned char c,char advance=1);
+	void addchar(unsigned int x, unsigned int y, unsigned char c,
+				unsigned char f, unsigned char b, unsigned char bright);
+
+	void addcoloredst(const char *str,const char *colorstr);
+	void addst(const string &str, justification just = justify_left);
+	void addst(const char *str, justification just = justify_left);
+	void erasescreen_clip();
+	void erasescreen();
+	void erasescreen_rect(int x1, int x2, int y1, int y2);
+	void setclipping(long x1,long x2,long y1,long y2);
+
+	void add_tile(long texp,char addcolor);
+	void add_tile_grayscale(long texp,char cf,char cbr);
+
+	void prepare_graphics(string &src_dir);
+
+	void gray_out_rect(long sx,long ex,long sy,long ey);
+	void dim_colors(long x,long y,char dim);
+
+	void rain_color_square(long x,long y);
+	void snow_color_square(long x,long y);
+	void color_square(long x,long y,unsigned char f,unsigned char b,unsigned char br);
+	void draw_border(int x1, int x2, int y1, int y2);
+
+};
+
+extern newgst newg;
 
 class graphicst
 {
-  int lookup_pair(std::pair<int,int> color);
-  long calculate_old_fps();
-	public:
-		long screenx,screeny;
-		char screenf,screenb;
-		char screenbright;
+	int lookup_pair(std::pair<int,int> color);
+	long calculate_old_fps();
+public:
+	long screenx,screeny;
+	char screenf,screenb;
+	char screenbright;
 
-		unsigned char *screen;
-		long *screentexpos;
-		char *screentexpos_addcolor;
-		unsigned char *screentexpos_grayscale;
-		unsigned char *screentexpos_cf;
-		unsigned char *screentexpos_cbr;
+	unsigned char *screen;
+	long *screentexpos;
+	char *screentexpos_addcolor;
+	unsigned char *screentexpos_grayscale;
+	unsigned char *screentexpos_cf;
+	unsigned char *screentexpos_cbr;
 
-                // Calling this is not enough in itself. You also need to call swap_front/back.
-                void resize(int x, int y);
-                                
-		long clipx[2],clipy[2];
-		long tex_pos[TEXTURENUM];
+	// Calling this is not enough in itself. You also need to call swap_front/back.
+	void resize(int x, int y);
 
-		long rect_id;
+	long clipx[2],clipy[2];
+	long tex_pos[TEXTURENUM];
 
-		LARGE_INTEGER print_time[100];
-		long print_index;
-		char display_frames;
+	long rect_id;
 
-		short force_full_display_count;
+	LARGE_INTEGER print_time[100];
+	long print_index;
+	char display_frames;
 
-		char original_rect;
+	short force_full_display_count;
 
-                int dimx, dimy;
+	char original_rect;
 
-		graphicst()
+	int dimx, dimy;
+
+	graphicst()
+	{
+		print_index=0;
+		display_frames=0;
+		rect_id=-1;
+		force_full_display_count=4;
+		original_rect=1;
+
+		screentexpos = NULL;
+		screentexpos_addcolor = NULL;
+		screentexpos_grayscale = NULL;
+		screentexpos_cf = NULL;
+		screentexpos_cbr = NULL;
+		screen = NULL;
+	}
+	void locate(long y,long x)
+	{
+		// No point in clamping here, addchar clamps too.
+		screenx=x;
+		screeny=y;
+	}
+	void changecolor(short f,short b,char bright)
+	{
+#ifdef ORIGST
+		screenf=f;
+		screenb=b;
+		screenbright=bright;
+#else
+		newg.changecolor(f,b,bright);
+#endif
+	}
+	void addchar(unsigned char c,char advance=1)
+	{
+#ifdef ORIGST
+		/* assert (screen_limit == screen + dimy * dimx * 4); */
+		unsigned char *s = screen + screenx*dimy*4 + screeny*4;
+		if(s < screen_limit)
+		{
+			*s++ = c;
+			*s++ = screenf;
+			*s++ = screenb;
+			*s++ = screenbright;
+			screentexpos[screenx*dimy + screeny]=0;
+		}
+#else
+		newg.addchar(c, advance);
+		return;
+#endif
+		if(advance)screenx++;
+	}
+	void addchar(unsigned int x, unsigned int y, unsigned char c,
+			unsigned char f, unsigned char b, unsigned char bright) {
+		/* assert (screen_limit == screen + dimy * dimx * 4); */
+		unsigned char *s = screen + x*dimy*4 + y*4;
+#ifdef ORIGST
+		if (s >= screen && s < screen_limit) {
+			*s++ = c;
+			*s++ = f;
+			*s++ = b;
+			*s++ = bright;
+		}
+#else
+		newg.addchar(x,y,c,f,b,bright);
+#endif
+	}
+	void addcoloredst(const char *str,const char *colorstr);
+	void addst(const string &str, justification just = justify_left);
+	void addst(const char *str, justification just = justify_left);
+	void erasescreen_clip();
+	void erasescreen();
+	void erasescreen_rect(int x1, int x2, int y1, int y2);
+	void setclipping(long x1,long x2,long y1,long y2);
+
+	void add_tile(long texp,char addcolor);
+	void add_tile_grayscale(long texp,char cf,char cbr);
+
+	void prepare_graphics(string &src_dir);
+
+	void gray_out_rect(long sx,long ex,long sy,long ey)
+	{
+#ifdef ORIGST
+		long x,y;
+		for(x=sx;x<=ex;x++)
+		{
+			for(y=sy;y<=ey;y++)
 			{
-			print_index=0;
-			display_frames=0;
-			rect_id=-1;
-			force_full_display_count=4;
-			original_rect=1;
-
-                        screentexpos = NULL;
-                        screentexpos_addcolor = NULL;
-                        screentexpos_grayscale = NULL;
-                        screentexpos_cf = NULL;
-                        screentexpos_cbr = NULL;
-                        screen = NULL;
-                        }
-
-                void locate(long y,long x)
-                {
-                  // No point in clamping here, addchar clamps too.
-                  screenx=x;
-                  screeny=y;
-                }
-                void changecolor(short f,short b,char bright)
-                {
-                  screenf=f;
-                  screenb=b;
-                  screenbright=bright;
-                }
-                void addchar(unsigned char c,char advance=1)
-                {
-                  /* assert (screen_limit == screen + dimy * dimx * 4); */
-                  unsigned char *s = screen + screenx*dimy*4 + screeny*4;
-                  if(s < screen_limit)
-                    {
-                      *s++ = c;
-                      *s++ = screenf;
-                      *s++ = screenb;
-                      *s++ = screenbright;
-                      screentexpos[screenx*dimy + screeny]=0;
-                    }
-                  if(advance)screenx++;
-                }
-                void addchar(unsigned int x, unsigned int y, unsigned char c,
-                             unsigned char f, unsigned char b, unsigned char bright) {
-                  /* assert (screen_limit == screen + dimy * dimx * 4); */
-                  unsigned char *s = screen + x*dimy*4 + y*4;
-                  if (s >= screen && s < screen_limit) {
-                    *s++ = c;
-                    *s++ = f;
-                    *s++ = b;
-                    *s++ = bright;
-                  }
-                }
-		void addcoloredst(const char *str,const char *colorstr);
-		void addst(const string &str, justification just = justify_left);
-		void addst(const char *str, justification just = justify_left);
-		void erasescreen_clip();
-		void erasescreen();
-                void erasescreen_rect(int x1, int x2, int y1, int y2);
-		void setclipping(long x1,long x2,long y1,long y2);
-
-		void add_tile(long texp,char addcolor);
-		void add_tile_grayscale(long texp,char cf,char cbr);
-
-		void prepare_graphics(string &src_dir);
-
-		void gray_out_rect(long sx,long ex,long sy,long ey)
-                {
-                  long x,y;
-                  for(x=sx;x<=ex;x++)
-                    {
-                      for(y=sy;y<=ey;y++)
-                        {
-                          screen[x*dimy*4 + y*4 + 1]=0;
-                          screen[x*dimy*4 + y*4 + 2]=7;
-                          screen[x*dimy*4 + y*4 + 3]=0;
-                        }
-                    }
-                }
-		void dim_colors(long x,long y,char dim);
-
-		void rain_color_square(long x,long y);
-		void snow_color_square(long x,long y);
-		void color_square(long x,long y,unsigned char f,unsigned char b,unsigned char br);
-
-		long border_start_x(){return 1;}
-		long border_start_y(){return 1;}
-		long border_end_x(){return 78;}
-		long border_end_y(){return 23;}
-		long text_width(){return 1;}
-		long text_height(){return 1;}
-		long window_element_height(long minus,char border)
-			{
-			long height=25;
-			if(border)height-=2;
-			height-=text_height()*minus;
-			return height;
+				screen[x*dimy*4 + y*4 + 1]=0;
+				screen[x*dimy*4 + y*4 + 2]=7;
+				screen[x*dimy*4 + y*4 + 3]=0;
 			}
+		}
+#else
+		newg.gray_out_rect(sx,ex,sy,ey);
+#endif
+	}
+	void dim_colors(long x,long y,char dim);
 
-                int mouse_x, mouse_y;
-		void get_mouse_text_coords(int32_t &mx, int32_t &my);
-                void draw_border(int x1, int x2, int y1, int y2);
+	void rain_color_square(long x,long y);
+	void snow_color_square(long x,long y);
+	void color_square(long x,long y,unsigned char f,unsigned char b,unsigned char br);
 
-                // Instead of doing costly bounds-checking calculations, we cache the end
-                // of the arrays..
-                unsigned char *screen_limit;
+	long border_start_x(){return 1;}
+	long border_start_y(){return 1;}
+	long border_end_x(){return 78;}
+	long border_end_y(){return 23;}
+	long text_width(){return 1;}
+	long text_height(){return 1;}
+	long window_element_height(long minus,char border)
+	{
+		long height=25;
+		if(border)height-=2;
+		height-=text_height()*minus;
+		return height;
+	}
+
+	int mouse_x, mouse_y;
+	void get_mouse_text_coords(int32_t &mx, int32_t &my);
+	void draw_border(int x1, int x2, int y1, int y2);
+
+	// Instead of doing costly bounds-checking calculations, we cache the end
+	// of the arrays..
+	unsigned char *screen_limit;
 };
 
 extern graphicst gps;
