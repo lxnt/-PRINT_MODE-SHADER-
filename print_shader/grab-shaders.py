@@ -86,7 +86,7 @@ struct _shader_pair {
         c_chars.append(xpmize(vs, vs_sym))
         c_chars.append(xpmize(fs, fs_sym))
         c_items.append(item_f.format(vs[:-3], vs_sym, fs_sym))
-
+    c_items.append("{ NULL }")
     c_code = "\n".join(c_chars) 
     c_code += c_struct +  ",\n".join(c_items) + "\n};\n"
     

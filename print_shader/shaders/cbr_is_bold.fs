@@ -1,7 +1,5 @@
 #version 120
 #line 2 0
-#pragma optimize(off)
-#pragma debug(on)
 
 uniform sampler2D ansi;
 uniform sampler2D font;
@@ -10,10 +8,12 @@ uniform float final_alpha;
 uniform vec3 pszar;             // { Parx, Pary, Psz }
 uniform vec4 txsz;              // { w_tiles, h_tiles, tile_w, tile_h }
 
-// Total 8 uniform floats, 2 samplers
+// Total 8 uniform floats, 3 samplers
 
 varying vec4 ansicolors;        // tile: computed foreground and background color indexes for tile and creature
 varying vec2 tilecrea;         	// floor and creature tile indexes
+
+// Total 6 float varyings (8 on Mesa)
 
 vec4 idx2texco(float idx) {
     vec4 tile_size;

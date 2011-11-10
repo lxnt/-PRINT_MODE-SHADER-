@@ -601,14 +601,14 @@ class renderer_glsl : public renderer {
 			const char *name;
 		} _vp[] = {
 			{  7, GL_MAX_VERTEX_ATTRIBS, "GL_MAX_VERTEX_ATTRIBS" }, // number of vec4 attribs available
-			{  7, GL_MAX_VERTEX_UNIFORM_COMPONENTS, "GL_MAX_VERTEX_UNIFORM_COMPONENTS" }, // single-component values
-			{  6, GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, "GL_MAX_FRAGMENT_UNIFORM_COMPONENTS" }, // same as above
-			{  1, GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, "GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS" }, // samplers in vert shader
-			{  2, GL_MAX_TEXTURE_IMAGE_UNITS, "GL_MAX_TEXTURE_IMAGE_UNITS" },  // samplers in frag shader
-			{ 12, GL_MAX_VARYING_FLOATS, "GL_MAX_VARYING_FLOATS" }, // 4 varying_floats = 1 texture_coord?
-			{  3, GL_MAX_TEXTURE_COORDS, "GL_MAX_TEXTURE_COORDS" }, // 1 texture_coord = 4 varying_floats?
+			{  9, GL_MAX_VERTEX_UNIFORM_COMPONENTS, "GL_MAX_VERTEX_UNIFORM_COMPONENTS" }, // single-component values
+			{ 11, GL_MAX_FRAGMENT_UNIFORM_COMPONENTS, "GL_MAX_FRAGMENT_UNIFORM_COMPONENTS" }, // same as above
+			{  0, GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, "GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS" }, // samplers in vert shader
+			{  3, GL_MAX_TEXTURE_IMAGE_UNITS, "GL_MAX_TEXTURE_IMAGE_UNITS" },  // samplers in frag shader
+			{  8, GL_MAX_VARYING_FLOATS, "GL_MAX_VARYING_FLOATS" }, // 4 varying_floats = 1 texture_coord?
+			{  2, GL_MAX_TEXTURE_COORDS, "GL_MAX_TEXTURE_COORDS" }, // 1 texture_coord = 4 varying_floats?
 			{ -4, GL_POINT_SIZE_MIN, "GL_POINT_SIZE_MIN" },
-			{ 64, GL_POINT_SIZE_MAX, "GL_POINT_SIZE_MAX" }, // no idea of our requirements
+			{ 48, GL_POINT_SIZE_MAX, "GL_POINT_SIZE_MAX" }, // no idea of our requirements
 			{  },
 		}, *vp = _vp;
 		while (vp->name) {
@@ -962,6 +962,8 @@ public:
 		fputsGLError(stderr);
 		if (do_swap)
 			SDL_GL_SwapBuffers();
+		else
+			glFlush();
 
 		last_frame_start_ts = start_ts;
 		last_frame_swap_ts = SDL_GetTicks();
@@ -1055,6 +1057,7 @@ public:
 		print_rendertime_at = 0;
 		fadein_finish_at = 0;
 		Psz = -8;
+		opengl_initialized = false;
 
 		char sdl_videodriver[256];
 		if (NULL == SDL_VideoDriverName(sdl_videodriver, sizeof(sdl_videodriver)))

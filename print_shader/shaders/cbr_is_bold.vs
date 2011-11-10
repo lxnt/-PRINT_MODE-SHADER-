@@ -8,7 +8,7 @@ const float ANSI_CC = 16.0; // ansi color count
 uniform vec4 txsz;              // { w_tiles, h_tiles, tile_w, tile_h }
 uniform vec2 viewpoint;			
 uniform vec3 pszar; 			// { parx, pary, psz }
-// Total 9 float uniforms, 1 sampler
+// Total 9 float uniforms
 
 attribute vec4 screen;          // { ch, fg, bg, bold } 
 attribute float texpos;         //  tile_tex_idx 
@@ -17,11 +17,11 @@ attribute float grayscale;
 attribute float cf;
 attribute float cbr;
 attribute vec2 position;        // almost forgot teh grid
-// Total 7 attributes  = 13 float values 
+// Total 7 attributes  = 11 float values 
 
 varying vec4 ansicolors;        // computed foreground and background color indexes for tile and creature
 varying vec2 tilecrea;         	// floor and creature tile indexes
-// Total 2 texcoords  = 6 varying floats
+// Total 6 float varyings (8 on Mesa)
 
 vec2 ansiconvert(vec3 c) { // { fg, bg, bold }, returns {fg_idx, bg_idx}
     vec2 rv;

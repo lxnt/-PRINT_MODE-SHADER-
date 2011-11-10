@@ -9,7 +9,6 @@ Resources:
     Source:       https://github.com/lxnt/-PRINT_MODE-SHADER-
     Download:     http://dffd.wimbli.com/file.php?id=5044
 
-
 Current state:
 ==============
 
@@ -21,7 +20,22 @@ limit on texture height.
 Download link above points to a compressed libprint_shader.so (with full debug,
 that's why the size). Replace your libs/libgraphics.so with it to try this out.
 
-Make sure you have [SHADER_SET:cbr_is_bold] in your init.txt.
+To leave as much CPU time as possible to the game engine, use the following settings:
+
+[SINGLE_BUFFER:YES]
+[G_FPS_CAP:25]
+
+The reason is that the [SINGLE_BUFFER:NO] setting will cap your FPS to your monitor 
+refresh rate (60Hz nowatimes), but also will waste about 10-15 microseconds for the
+refresh to happen. 
+
+On the other hand, [SINGLE_BUFFER:YES] will never wait for the refresh, while
+[G_FPS_CAP:25] ensures that time is not wasted on frames you are not able to appreciate
+anyway.
+
+On those settings, my phenom 975/radeon 4850 pull about 60-65 game FPS 
+on a medium-sized fortress, whereas former driver made it nigh unplayable.
+
 
 System requirements:
 ====================
@@ -73,7 +87,7 @@ init.txt tokens specific to this renderer:
 [USE_UNDERLAY:NO]  attempt to remember the floor tile under creatures
 [DUMP_CREATURES:NO] dump creature draw data to stderr
 [FADE_IN:0] fade in screen on startup and on game load, value in milliseconds.
-            Default: 0 = disabled
+            Default: 250. 'NO' or 0 disables.
 [GL_CLEAR_COLOR:0] background color to detect resize/zoom/viewport bugs, also
             the color the fade in fades in from. Value: index into ansi colors.
             Default: 0 = black.

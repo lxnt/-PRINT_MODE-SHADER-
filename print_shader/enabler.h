@@ -803,7 +803,7 @@ struct glsl_configst {
 		snap_window = false;
 		stretch_tiles = false;
 		dump_creatures = false;
-		fade_in = 0;
+		fade_in = 250;
 		glclearcolor = 0;
 	}
 };
