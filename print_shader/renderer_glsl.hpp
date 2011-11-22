@@ -89,6 +89,7 @@ class renderer_glsl : public renderer {
 	// internal flags
 	bool do_reset_glcontext;    // if a full reset of opengl context is required after SDL_SetVideoMode()
 	bool do_swap; 				// if SDL_GL_Swap() is needed.
+	bool do_sync; 				// if glFenceSync() is to be used.
 	bool do_update_attrs;       // if grid vbo was touched: that is, reshaped.
 	bool opengl_initialized;
 	bool texture_ready;			// if we've got a suitable tileset/font texture to work with.
@@ -619,6 +620,7 @@ class renderer_glsl : public renderer {
 			fprintf(stderr, "%s=%d, needed=%d\n", vp->name, param, vp->needed < 0 ? -vp->needed : vp->needed);
 			vp++;
 		}
+		fprintf(stderr, "GL_ARB_sync: %s\n", glewGetExtension("GL_ARB_sync") ? "supported" : "not supported");
 	}
 	void opengl_init() {
 		GLenum err = glewInit();
@@ -649,6 +651,8 @@ class renderer_glsl : public renderer {
 		fputsGLError(stderr);
 		shader_setup();
 		fputsGLError(stderr);
+
+		do_sync = init.display.flag.has_flag(INIT_DISPLAY_FLAG_ARB_SYNC) && glewGetExtension("GL_ARB_sync");
 		opengl_initialized = true;
 	}
 	void opengl_fini() {
@@ -960,8 +964,11 @@ public:
 		rebind_textures();
 		glDrawArrays(GL_POINTS, 0, grid_tile_count);
 		fputsGLError(stderr);
+		if (do_sync)
+			enabler.sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+
 		if (do_swap)
-			SDL_GL_SwapBuffers();
+			SDL_GL_SwapBuffers(); // unconditional glXSwapBuffers; does implicit glFlush
 		else
 			glFlush();
 
@@ -1072,6 +1079,7 @@ public:
 			SDL_WM_SetIcon(icon, NULL);
 			SDL_FreeSurface(icon);
 		}
+		do_sync = false;
 
 		if (init.display.desired_fullscreen_width == 0
 				|| init.display.desired_fullscreen_height == 0) {
