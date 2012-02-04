@@ -1134,8 +1134,8 @@ public:
 	virtual bool get_mouse_coords(int &x, int &y) {
 		int mouse_x, mouse_y;
 		SDL_GetMouseState(&mouse_x, &mouse_y);
-		x = (mouse_x - viewport_offset_x) / (Pszx * grid_w);
-		y = (mouse_y - viewport_offset_y) / (Pszy * grid_h);
+		x = (mouse_x - viewport_offset_x) / Pszx;
+		y = (mouse_y - viewport_offset_y) / Pszy;
 		return true;
 	}
 	virtual bool uses_opengl() {
