@@ -54,8 +54,10 @@ void texdumpst::update() {
 	max_tw = max_th = 0;
 
 	for (std::vector<SDL_Surface *>::iterator it = raws->begin(); it != raws->end(); ++it) {
-		if ((*it)->w > max_tw) max_tw = (*it)->w;
-		if ((*it)->h > max_th) max_th = (*it)->h;
+		if (*it) {
+			if ((*it)->w > max_tw) max_tw = (*it)->w;
+			if ((*it)->h > max_th) max_th = (*it)->h;
+		}
 	}
 	const int texture_width = 2048; // in fact can be 4096, but ...
 	w_t = texture_width / max_tw;
