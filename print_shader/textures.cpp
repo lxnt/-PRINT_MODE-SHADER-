@@ -347,11 +347,15 @@ void textures::remove_uploaded_textures() {
 }
 
 SDL_Surface *textures::get_texture_data(long pos) {
-  if (raws.size() > pos)
+  if (raws.size() > pos) {
     return raws[pos];
-  else {
+  } else {
     std::cerr << "Asked for nonexistent texture data\n";
-    return NULL;
+    SDL_Surface *surf = SDL_CreateRGBSurface(SDL_SWSURFACE, 8, 8, 32, 0, 0, 0, 0);
+    SDL_FillRect(surf, NULL, SDL_MapRGB(surf->format, 255, 0, 255));
+    raws.resize(pos+1);
+    raws[pos] = surf;
+    return raws[pos];
   }
 }
 
