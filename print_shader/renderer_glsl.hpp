@@ -628,9 +628,15 @@ class renderer_glsl : public renderer {
 		  fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
 		  exit(1);
 		}
+
 		fprintf(stderr, "GLEW: %s\n", glewGetString(GLEW_VERSION));
 
 		opengl_vital_parameters();
+		if ( !GLEW_VERSION_2_0 ) {
+			fprintf(stderr, "OpenGL 2.0 or later is required .\n");
+			exit(1);
+		}
+
 		glGenTextures(LAST_TEX, tex_id);
 		glGenBuffers(LAST_BO, vbo_id);
 		glEnable(GL_ALPHA_TEST);
