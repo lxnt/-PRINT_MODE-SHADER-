@@ -1,0 +1,3 @@
+[submodule "dfapi"]
+	path = dfapi
+	url = git@github.com:lxnt/df-structures.git
