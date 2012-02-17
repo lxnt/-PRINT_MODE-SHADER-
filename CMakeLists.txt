@@ -1,0 +1,31 @@
+project(PMS)
+
+cmake_minimum_required(VERSION 2.8)
+
+if(UNIX)
+    set(CMAKE_LIBRARY_PATH /usr/lib32 /usr/lib/i386-linux-gnu)
+    set(CMAKE_CXX_FLAGS_DEBUG "-m32 -g -std=c++0x -Wall -Wno-sign-compare")
+    set(CMAKE_C_FLAGS_DEBUG "-m32 -g -Wall")
+    set(CMAKE_CXX_FLAGS "-m32 -march=i686 -mtune=generic -std=c++0x -Wno-sign-compare ")
+    set(CMAKE_C_FLAGS "-m32 -march=i686 -mtune=generic")
+    add_definitions( -Dlinux=23 -Dunix=42 -DLINUX_BUILD)
+endif()
+
+include_directories(dfapi/include)
+link_directories(/usr/lib/i386-linux-gnu /usr/lib32)
+
+if(NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING 
+        "Choose the type of build, options are: Debug Release."
+    )
+endif()
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_definitions(-DDEBUG=8)
+endif()
+
+add_definitions( -D_GNU_SOURCE=1 -D_REENTRANT )
+
+add_subdirectory(print_shader)
+add_subdirectory(dfapi)
+

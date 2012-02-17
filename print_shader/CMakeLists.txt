@@ -1,29 +1,3 @@
-project(PMS)
-
-cmake_minimum_required(VERSION 2.8)
-
-if(UNIX)
-    set(CMAKE_LIBRARY_PATH /usr/lib32 /usr/lib/i386-linux-gnu)
-    set(CMAKE_CXX_FLAGS_DEBUG "-m32 -g -std=c++0x -Wall -Wno-sign-compare")
-    set(CMAKE_C_FLAGS_DEBUG "-m32 -g -Wall")
-    set(CMAKE_CXX_FLAGS "-m32 -march=i686 -mtune=generic -std=c++0x -Wno-sign-compare ")
-    set(CMAKE_C_FLAGS "-m32 -march=i686 -mtune=generic")
-endif()
-
-link_directories(/usr/lib/i386-linux-gnu /usr/lib32)
-
-if(NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
-    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING 
-        "Choose the type of build, options are: Debug Release."
-    )
-endif()
-
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_definitions(-DDEBUG=8 -Dlinux=23 -Dunix=42)
-endif()
-
-add_definitions( -D_GNU_SOURCE=1 -D_REENTRANT )
-
 option(WITH_FMOD "include fmod" OFF)
 if (WITH_FMOD)
 else()
@@ -64,6 +38,8 @@ set( SOURCE
     ttf_manager.cpp
     ViewBase.cpp
     win32_compat.cpp
+    
+    dfapi_glue.cpp
 )
 
 set( HEADERS
@@ -103,17 +79,18 @@ set( HEADERS
 )
 
 set_source_files_properties(shaders.c PROPERTIES GENERATED TRUE)
-file(GLOB SHADER_SOURCE  ${PMS_SOURCE_DIR}/shaders/*)
+file(GLOB SHADER_SOURCE  ${PMS_SOURCE_DIR}/print_shader/shaders/*)
 add_custom_command(
-    OUTPUT ${PMS_SOURCE_DIR}/shaders.c
-    COMMAND python ${PMS_SOURCE_DIR}/grab-shaders.py ${PMS_SOURCE_DIR}/shaders ${PMS_SOURCE_DIR}/shaders.c
-    WORKING_DIRECTORY ${PMS_SOURCE_DIR}
-    MAIN_DEPENDENCY ${PMS_SOURCE_DIR}/grab-shaders.py
+    OUTPUT ${PMS_SOURCE_DIR}/print_shader/shaders.c
+    COMMAND python ${PMS_SOURCE_DIR}/print_shader/grab-shaders.py ${PMS_SOURCE_DIR}/print_shader/shaders ${PMS_SOURCE_DIR}/print_shader/shaders.c
+    WORKING_DIRECTORY ${PMS_SOURCE_DIR}/print_shader
+    MAIN_DEPENDENCY ${PMS_SOURCE_DIR}/print_shader/grab-shaders.py
     DEPENDS ${SHADER_SOURCE}
 )
-add_custom_target(grab_shaders DEPENDS ${PMS_SOURCE_DIR}/shaders.c)
+add_custom_target(grab_shaders DEPENDS ${PMS_SOURCE_DIR}/print_shader/shaders.c)
 add_library( graphics SHARED ${SOURCE} )
 add_dependencies(graphics grab_shaders)
 find_package(GTK2 2.10 REQUIRED gtk)
 include_directories(${GTK2_INCLUDE_DIRS})
-target_link_libraries(graphics ${GTK2_LIBRARIES} ${LIBS})
+target_link_libraries(graphics ${GTK2_LIBRARIES} ${LIBS} dfapi)
+

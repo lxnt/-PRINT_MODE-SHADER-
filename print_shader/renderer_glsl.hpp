@@ -1,3 +1,5 @@
+void dfapi_init(void);
+
 #include "zlib.h"
 
 #include "shaders.c"
@@ -1136,6 +1138,7 @@ public:
 		gps_allocate(MIN_GRID_X, MIN_GRID_Y);
 		Pszx = surface->w/MIN_GRID_X; // so that get_mousecoords don't
 		Pszy = surface->h/MIN_GRID_Y; // divide by zero.
+        dfapi_init();
 	}
 	virtual bool get_mouse_coords(int &x, int &y) {
 		int mouse_x, mouse_y;
