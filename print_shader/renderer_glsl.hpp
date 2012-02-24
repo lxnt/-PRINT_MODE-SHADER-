@@ -1,8 +1,8 @@
-void dfapi_init(void);
-
 #include "zlib.h"
 
 #include "shaders.c"
+void dfapi_init(void);
+void fugr_dump(void);
 
 extern texdumpst texdumper;
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
@@ -567,6 +567,7 @@ class renderer_glsl : public renderer {
 		glUniform4f(unif_loc[TXSZ], txsz_w, txsz_h, cell_h, cell_w);
 		fputsGLError(stderr);
 		reshape(grid_w, grid_h); // update PSZAR
+		fugr_dump();
 	}
 	void set_viewport() {
 		fprintf(stderr, "set_viewport(): got %dx%d out of %dx%d\n",
@@ -1073,6 +1074,8 @@ public:
 		fadein_finish_at = 0;
 		Psz = -8;
 		opengl_initialized = false;
+		
+		dfapi_init();
 
 		char sdl_videodriver[256];
 		if (NULL == SDL_VideoDriverName(sdl_videodriver, sizeof(sdl_videodriver)))
@@ -1138,7 +1141,6 @@ public:
 		gps_allocate(MIN_GRID_X, MIN_GRID_Y);
 		Pszx = surface->w/MIN_GRID_X; // so that get_mousecoords don't
 		Pszy = surface->h/MIN_GRID_Y; // divide by zero.
-        dfapi_init();
 	}
 	virtual bool get_mouse_coords(int &x, int &y) {
 		int mouse_x, mouse_y;
