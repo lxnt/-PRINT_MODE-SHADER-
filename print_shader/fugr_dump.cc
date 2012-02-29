@@ -18,6 +18,12 @@
 #include "df/block_square_event_grassst.h"
 #include "df/block_square_event_world_constructionst.h"
 #include "df/block_square_event_mineralst.h"
+#include "df/building.h"
+#include "df/building_def.h"
+#include "df/item.h"
+#include "df/unit.h"
+#include "df/plant.h"
+#include "df/construction.h"
 #include "df/cursor.h"
 #include "df/global_objects.h"
 
@@ -111,37 +117,142 @@ world->world_data->regions : std::vector<df::world_region* >:
 
 */
 
-void fugr_dump(void) {
+
+struct _bicache_item { // should be indices if we ever go 64bit, but...
+    std::vector<df::building *> buildings;
+    std::vector<df::item *> items;
+    std::vector<df::unit *> units;
+    std::vector<df::construction *> constructions;
+    bool has_something;
+};
+
+struct _bicache {
+
+    _bicache_item *head;
+    df::coord origin;
+    df::coord size;
     
-    if (!df::global::world || !df::global::world->world_data)
-    {
-        fprintf(stderr, "World data is not available.: %p\n", df::global::world);
-        return;
+    _bicache() {
+        origin = { 0, 0 ,0};
+        size = { 0, 0 ,0};
+        head = NULL;
     }
-    layer_materials_cache lmc;
- 
-    fprintf(stderr, "cursor posn: %d:%d:%d\n", df::global::cursor->x, df::global::cursor->y, df::global::cursor->z);
+    ~_bicache() { if (head) free(head); }
     
-    std::vector<df::map_block* > map_blocks = df::global::world->map.map_blocks;
-    df::map_block**** block_index = df::global::world->map.block_index;
+    void update(df::coord a, df::coord b) {
+        if ( size < b-a ) {
+            if (head)
+                free(head);
+            size = b - a;
+            head = static_cast<_bicache_item*> (calloc(sizeof(_bicache_item), size.x*size.y*size.z));
+        }
+        for ( int i=0; i < df::global::world->items.all.size(); i++ ) {
+            df::item *item  = df::global::world->items.all[i];
+            if (item->pos.x != -30000) {
+                at(item->pos/16).items.push_back(item);
+                at(item->pos/16).has_something = true;
+            }
+        }
+        for ( int i=0; i < df::global::world->buildings.all.size(); i++ ) {
+            df::building& bu = *df::global::world->buildings.all[i];
+            int sbx = bu.x1>>4, sby = bu.y1>>4;
+            int ebx = bu.x2>>4, eby = bu.y2>>4;
+            for (int j=sbx; j <= ebx; j++)
+                for (int k=sby; k<=eby; k++) {
+                    df::coord pos(j, k, bu.z);
+                    at(pos/16).buildings.push_back(&bu);
+                    at(pos/16).has_something = true;
+                }
+        }
+        for (int i=0; i<df::global::world->units.all.size(); i++ ) {
+            df::unit *unit = df::global::world->units.all[i];
+            at(unit->pos/16).units.push_back(unit);
+            at(unit->pos/16).has_something = true;
+        }
+        for (int i=0; i < df::global::world->constructions.size() ; i ++) {
+            df::construction *c = df::global::world->constructions[i];
+            at(c->pos/16).constructions.push_back(c);
+            at(c->pos/16).has_something = true;
+        }
+    }
     
-    int32_t x_count_block = df::global::world->map.x_count_block;
-    int32_t y_count_block =  df::global::world->map.y_count_block;
-    int32_t z_count_block =  df::global::world->map.z_count_block;
-    int32_t x_count =  df::global::world->map.x_count;
-    int32_t y_count =  df::global::world->map.y_count;
-    int32_t z_count =  df::global::world->map.z_count;
-    int32_t region_x =  df::global::world->map.region_x;
-    int32_t region_y =  df::global::world->map.region_y;
-    int32_t region_z =  df::global::world->map.region_z;   
+    inline _bicache_item& at(df::coord w) {
+        return *(head + w.z*size.x*size.y + w.y*size.x +w.x);
+    }
+    inline _bicache_item& at(int x, int y, int z) {
+        return *(head + z*size.x*size.y + y*size.x +x);
+    }
+};
+
+static void dump_buildings(const char *fname, _bicache& cache) {
+    FILE *fp = fopen(fname, "w");
     
+    for ( int i=0; i < df::global::world->buildings.all.size(); i++ ) {
+        df::building& b = *df::global::world->buildings.all[i];
+        fprintf(fp, 
+            "id %d name %s type %d subtype %d custype %d "
+            "xy1 %d,%d xy2 %d,%d cxy %d,%d z %d "
+            "mat_type %hd mat_index %d\n",
+            b.id, b.name.c_str(), b.getType(), b.getSubtype(), b.getCustomType(),
+            b.x1, b.y1, b.x2, b.y2, b.centerx, b.centery, b.z,
+            b.mat_type, b.mat_index);
+    }
+            
+    fclose(fp);    
+}
+
+static void dump_items(const char *fname, _bicache& cache) {
+    std::string desc;
+    FILE *fp = fopen(fname, "w");
+    for ( int i=0; i < df::global::world->items.all.size(); i++ ) {
+        df::item& it = *df::global::world->items.all[i];
+        desc.clear();
+        it.getItemDescription(&desc, 255);
+        fprintf(fp, "id %d type %hd subtype %hd actmat %hd actmatindex %d"
+            "pos: %hd,%hd,%hd desc: %s\n", 
+            it.id, it.getType(), it.getSubtype(),
+            it.pos.x, it.pos.y, it.pos.z,
+            it.getActualMaterial(), it.getActualMaterialIndex(), desc.c_str() );
+    }
+    fclose(fp);
+}
+
+static void dump_units(const char *fname, _bicache& cache) {
+    FILE *fp = fopen(fname, "w");
+    for (int i=0; i<df::global::world->units.all.size(); i++ ) {
+        df::unit& u = *df::global::world->units.all[i];
+        fprintf(fp, "id %d name: %s %s prof: %hd, %hd custom_prof '%s' race %d"
+            " sex %hhd caste %hd pos %hd,%hd,%hd\n",
+            u.id, u.name.first_name.c_str(), u.name.nickname.c_str(), 
+            u.profession, u.profession2, u.custom_profession.c_str(), 
+            u.race, u.sex, u.caste, u.pos.x, u.pos.y, u.pos.z);
+    }
+    fclose(fp);
+}
+
+static void dump_building_defs(const char *fname) {
+    FILE *fp = fopen(fname, "w");
+    df::world_raws& raws = df::global::world->raws;
     
-    FILE *fp = fopen("fugrdump.mats", "w");
-    
-    fprintf(fp, "count_block: %d:%d:%d\ncount: %d:%d:%d\nregion: %d:%d:%d\n",
-	x_count_block, y_count_block, z_count_block,
-	x_count, y_count, z_count, 
-	region_x, region_y, region_z );
+    for (int i=0; i < raws.buildings.all.size() ; i ++) {
+        df::building_def& def = *raws.buildings.all[i];
+        fprintf(fp, "id: %d name: %s name_color %hd %hd %hd %hd build_key %d "
+                    "dim %d,%d workloc %d,%d build_stages %d\n",
+                def.id, def.name.c_str(), 
+                def.name_color[0],
+                def.name_color[1],
+                def.name_color[2],
+                def.name_color[3],
+                def.build_key,
+                def.dim_x, def.dim_y, 
+                def.workloc_x, def.workloc_y,
+                def.build_stages );
+    }
+    fclose(fp);
+}
+
+static void dump_materials(const char *fname) {
+    FILE *fp = fopen(fname, "w");
     
     // dumping inorg and plant maps
     std::vector<df::inorganic_raw* > inorg = df::global::world->raws.inorganics;
@@ -151,30 +262,97 @@ void fugr_dump(void) {
 	fprintf(fp, "%d INORG %s\n", i, inorg[i]->id.c_str());
     for (int i=0; i < plants.size(); i++)
 	fprintf(fp, "%d PLANT %s\n", i, plants[i]->id.c_str());
-    fclose(fp);
-    fp = fopen("fugrdump.tiles", "w");
+    fclose(fp);    
+}
 
-    // dumping 6bx6bx6z at cursor coords.
-    // that is 96x96x6 tiles
-    const int dumpw = 16*6;
-    const int dumph = 6;
+static void dump_constructions(const char* fname) {
+    FILE *fp = fopen(fname, "w");
+   
+    for (int i=0; i < df::global::world->constructions.size() ; i ++) {
+        df::construction& c = *df::global::world->constructions[i];
+        fprintf(fp, "%hd:%hd:%hd item_type: %hd item_subtype: %hd mat_type: %hd mat_index: %d orig_tile: %hd\n",
+            c.pos.x, c.pos.y, c.pos.z, c.item_type, c.item_subtype, c.mat_type, c.mat_index, c.original_tile);
+    }
+    fclose(fp);
+}
+
+
+static bool constructed_tiles[df::enums::tiletype::_last_item_of_tiletype] = { false };
+static inline void hash_and_write(int hr_width, int b_x, int t_x, int t_y, uint16_t mat, df::tiletype tt, uint32_t *hashed_row) {
+    int rti = hr_width*16*t_y +  b_x*16+t_x;
+    hashed_row[rti] = ((mat & 0x3ff)<<10) | (tt & 0x3ff);
+}
+
+void fugr_dump(void) {
+    if (not constructed_tiles[df::enums::tiletype::tiletype::ConstructedRamp]) {
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedFloor] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedFortification] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedPillar] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallRD2] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallR2D] = true,
+        constructed_tiles[df::enums::tiletype::tiletype:: ConstructedWallR2U] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallRU2] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallL2U] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLU2] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallL2D] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLD2] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLRUD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallRUD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLRD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLRU] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLUD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallRD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallRU] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLU] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallUD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedWallLR] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedStairUD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedStairD] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedStairU] = true,
+        constructed_tiles[df::enums::tiletype::tiletype::ConstructedRamp] = true;
+    }
     
-    int c_xb = df::global::cursor->x / 16;
-    int c_yb = df::global::cursor->y / 16;
-    int c_z  = df::global::cursor->z;
+    if (!df::global::world || !df::global::world->world_data)
+    {
+        fprintf(stderr, "World data is not available.: %p\n", df::global::world);
+        return;
+    }
+    layer_materials_cache lmc;
+     
+    std::vector<df::map_block* > map_blocks = df::global::world->map.map_blocks;
+    df::map_block**** block_index = df::global::world->map.block_index;
     
-    int x_start = (c_xb - 3) * 16; 
-    int y_start = (c_yb - 3) * 16;
-    int z_start = (c_z  - 3);
+    int32_t x_count_block = df::global::world->map.x_count_block;
+    int32_t y_count_block =  df::global::world->map.y_count_block;
+    int32_t z_count_block =  df::global::world->map.z_count_block;
+
+    df::coord start( 0, 0, 0 );
+    df::coord end( x_count_block, y_count_block, z_count_block);
+    _bicache beecee;
+    beecee.update(start, end);
+    
+    { 
+                          
+        dump_materials("fugrdump.materials");
+        dump_buildings("fugrdump.buildings", beecee);
+        dump_constructions("fugrdump.constructions");
+        dump_building_defs("fugrdump.bdefs");
+        dump_items("fugrdump.items", beecee);
+        dump_units("fugrdump.units", beecee);
+    }
     
     // dumping the whole map
 
-    x_start = 0;
-    y_start = 0;
-    z_start = 0;
-    int x_end = x_count_block;
-    int y_end = y_count_block;
-    int z_end = z_count_block;
+    FILE *fp = fopen("fugrdump.tiles", "w");
+    { // write page-sized header
+        int cw;
+        cw = fprintf(fp, "count_blocks: %d:%d:%d\n", 
+            x_count_block, y_count_block, z_count_block);
+        void *padding = calloc(4096-cw,1);        
+        fwrite(padding, 4096-cw, 1, fp);
+        free(padding);
+    }
     
 
     /* hashed row is a set of 16 rows of tile hashes
@@ -188,38 +366,79 @@ void fugr_dump(void) {
        tile coords inside it, corresponding tilehash in the hashed_row is:
        width*16*t_y +  (x*16+t_x) where width is number of blocks in the row.
     */
-    int hr_width = x_end - x_start;
+    
+    int hr_width = end.x - start.x;
     uint32_t hashed_row[256*hr_width];
-    for(int z = z_start; z < z_end; z++)
-        for(int y = y_start; y < y_end; y++) {
+    uint16_t plant_mats[256];
+    
+    bool plants_clean = true;
+    for(int z = start.z; z < end.z; z++)
+        for(int y = start.y; y < end.y; y++) {
             memset(hashed_row, 0xFF, 1024*hr_width);
-            for(int x = x_start; x < x_end; x++) {
+            for(int x = start.x; x < end.x; x++) {
                 df::map_block *b = block_index[x][y][z];
                 if (b) {
+                    if (not plants_clean) {
+                        memset(plant_mats, 0xFF, 512);
+                        plants_clean = true;
+                    }
+                    for (int pi = 0; pi < b->plants.size(); pi ++) {
+                        plants_clean = false;
+                        df::coord2d pc = b->plants[pi]->pos % 16;
+                        plant_mats[pc.x + 16*pc.y] = b->plants[pi]->material;
+                    }
                     for (int ti = 0; ti < 256; ti++) {
                         int t_x = ti % 16;
                         int t_y = ti / 16;
-                        int mat = lmc.get(b->designation[t_x][t_y], b->region_offset);
+                        df::coord pos( x*16 + t_x, y*16+t_y, z );
+                        df::tiletype tiletype = b->tiletype[t_x][t_y];
+                        
+                        if (plant_mats[ti] != 0xffff) {
+                            hash_and_write(hr_width, x, t_x, t_y, plant_mats[ti], tiletype, hashed_row);
+                            continue;
+                        }
+                        if (constructed_tiles[tiletype]) {
+                            _bicache_item& bi = beecee.at(x,y,z);
+                            bool done = false;
+                            for (int i = 0; i < bi.constructions.size(); i++) {
+                                df::construction& suspect = *bi.constructions[i]; 
+                                if (pos == suspect.pos) {
+                                    hash_and_write(hr_width, x, t_x, t_y, suspect.mat_index, tiletype, hashed_row);
+                                    done = true;
+                                    break;
+                                }
+                            }
+                            if (done)
+                                continue;
+                            fprintf(stderr, "Whoa, constructed tile, but no corresponding construction.\n"
+                                "pos %hd:%hd:%hd constructions in bicache: %d\n", pos.x, pos.y, pos.z,
+                                   bi.constructions.size() );
+                        }
+                            
+                        int mat = lmc.get(b->designation[t_x][t_y], b->region_offset);                        
                         for (int i = 0; i < b->block_events.size(); i++)
                             switch (b->block_events[i]->getType()) {
                                 case df::block_square_event_type::mineral:
                                 {
                                    df::block_square_event_mineralst *e = (df::block_square_event_mineralst *)b->block_events[i];
-                                    if ( e->tile_bitmask[t_y] & ( 1 << t_x  )  && (mat == -1))
+                                    if ( e->tile_bitmask[t_y] & ( 1 << t_x  ) )
                                         mat = e->inorganic_mat;
                                     break;
                                 }
                                 case df::block_square_event_type::world_construction:
                                 {
                                     df::block_square_event_world_constructionst *e = (df::block_square_event_world_constructionst *)b->block_events[i];
-                                    if ( e->tile_bitmask[t_y] & ( 1 << t_x  ) )
+                                    if ( e->tile_bitmask[t_y] & ( 1 << t_x  ) ) {
                                         mat = e->inorganic_mat;
+                                    }
+                                    fprintf(stderr,"constr at %hd %hd %hd %d mat=%d\n", pos.x, pos.y, pos.z, 
+                                        e->tile_bitmask[t_y] & ( 1 << t_x  ), e->inorganic_mat);
                                     break;
                                 }
                                 case df::block_square_event_type::grass:
                                 {
                                     df::block_square_event_grassst *e = (df::block_square_event_grassst *)b->block_events[i];
-                                    if ((e->amount[t_x][t_y] > 0) && (mat == -1))
+                                    if ((e->amount[t_x][t_y] > 0) )
                                         mat = e->plant_index;
                                     break;
                                 }
@@ -234,8 +453,7 @@ void fugr_dump(void) {
                                 default:
                                     break;
                             }
-                        int rti = hr_width*16*t_y +  x*16+t_x;
-                        hashed_row[rti] = ((mat & 0x3ff)<<10) | (b->tiletype[t_x][t_y] & 0x3ff);
+                        hash_and_write(hr_width, x, t_x, t_y, mat, tiletype, hashed_row);
                     }
                 }
             }
@@ -243,5 +461,6 @@ void fugr_dump(void) {
             fwrite(hashed_row, sizeof(uint32_t) * 256 * hr_width, 1, fp);                
         }
     fclose(fp);
+    exit(1);
 }
 
