@@ -514,6 +514,5 @@ void fugr_dump(void) {
             des_offset += sizeof(liquid_row);
         }
     fclose(fp);
-        exit(1);
 }
 
