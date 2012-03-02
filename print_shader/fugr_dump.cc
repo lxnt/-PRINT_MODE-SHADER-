@@ -18,14 +18,17 @@
 #include "df/block_square_event_grassst.h"
 #include "df/block_square_event_world_constructionst.h"
 #include "df/block_square_event_mineralst.h"
+#include "df/block_square_event_frozen_liquidst.h"
 #include "df/building.h"
 #include "df/building_def.h"
 #include "df/item.h"
 #include "df/unit.h"
 #include "df/plant.h"
 #include "df/construction.h"
+#include "df/effect.h"
 #include "df/cursor.h"
 #include "df/global_objects.h"
+
 
 static const uint32_t NOMAT = 0xFFFFFFFFu;
 
@@ -184,60 +187,64 @@ struct _bicache {
     }
 };
 
-static void dump_buildings(const char *fname, _bicache& cache) {
-    FILE *fp = fopen(fname, "w");
+static void dump_buildings(FILE *fp, _bicache& cache) {
+    fputs("section:buildings\n", fp);
     
     for ( int i=0; i < df::global::world->buildings.all.size(); i++ ) {
         df::building& b = *df::global::world->buildings.all[i];
         fprintf(fp, 
-            "id %d name %s type %d subtype %d custype %d "
-            "xy1 %d,%d xy2 %d,%d cxy %d,%d z %d "
-            "mat_type %hd mat_index %d\n",
+            "%d,%d,%d %d,%d,%d, %d,%d,%d, "
+            "id=%d name=%s type=%d subtype=%d custype=%d "
+            "mat_type=%hd mat_index=%d\n",
+            b.x1, b.y1, b.z, b.x2, b.y2, b.z, b.centerx, b.centery, b.z,
             b.id, b.name.c_str(), b.getType(), b.getSubtype(), b.getCustomType(),
-            b.x1, b.y1, b.x2, b.y2, b.centerx, b.centery, b.z,
             b.mat_type, b.mat_index);
     }
-            
-    fclose(fp);    
 }
 
-static void dump_items(const char *fname, _bicache& cache) {
+static void dump_items(FILE *fp, _bicache& cache) {
+    fputs("section:items\n", fp);
+    
     std::string desc;
-    FILE *fp = fopen(fname, "w");
     for ( int i=0; i < df::global::world->items.all.size(); i++ ) {
         df::item& it = *df::global::world->items.all[i];
+        if (it.pos.x + it.pos.y + it.pos.z < 0)
+            continue;
         desc.clear();
         it.getItemDescription(&desc, 255);
-        fprintf(fp, "id %d type %hd subtype %hd actmat %hd actmatindex %d"
-            "pos: %hd,%hd,%hd desc: %s\n", 
+        fprintf(fp, "%hd,%hd,%hd id\%d type=%hd subtype=%hd actmat=%hd actmatindex=%d"
+            "desc=%s\n", it.pos.x, it.pos.y, it.pos.z,
             it.id, it.getType(), it.getSubtype(),
-            it.pos.x, it.pos.y, it.pos.z,
+            
             it.getActualMaterial(), it.getActualMaterialIndex(), desc.c_str() );
     }
-    fclose(fp);
 }
 
-static void dump_units(const char *fname, _bicache& cache) {
-    FILE *fp = fopen(fname, "w");
+static void dump_units(FILE *fp, _bicache& cache) {
+    fputs("section:units\n", fp);
+    
     for (int i=0; i<df::global::world->units.all.size(); i++ ) {
         df::unit& u = *df::global::world->units.all[i];
-        fprintf(fp, "id %d name: %s %s prof: %hd, %hd custom_prof '%s' race %d"
-            " sex %hhd caste %hd pos %hd,%hd,%hd\n",
+        fprintf(fp, "%hd,%hd,%hd "
+            "id=%d name='%s' nickname='%s' "
+            "prof=%hd,%hd custom_prof='%s' "
+            "race=%d sex=%hhd caste=%hd\n",  
+            u.pos.x, u.pos.y, u.pos.z, 
             u.id, u.name.first_name.c_str(), u.name.nickname.c_str(), 
             u.profession, u.profession2, u.custom_profession.c_str(), 
-            u.race, u.sex, u.caste, u.pos.x, u.pos.y, u.pos.z);
+            u.race, u.sex, u.caste);
     }
-    fclose(fp);
 }
 
-static void dump_building_defs(const char *fname) {
-    FILE *fp = fopen(fname, "w");
+static void dump_building_defs(FILE *fp) {
+    fputs("section:building_defs\n", fp);
+    
     df::world_raws& raws = df::global::world->raws;
     
     for (int i=0; i < raws.buildings.all.size() ; i ++) {
         df::building_def& def = *raws.buildings.all[i];
-        fprintf(fp, "id: %d name: %s name_color %hd %hd %hd %hd build_key %d "
-                    "dim %d,%d workloc %d,%d build_stages %d\n",
+        fprintf(fp, "id=%d name=%s name_color=%hd,%hd,%hd,%hd build_key=%d "
+                    "dim=%d,%d workloc=%d,%d build_stages=%d\n",
                 def.id, def.name.c_str(), 
                 def.name_color[0],
                 def.name_color[1],
@@ -248,12 +255,10 @@ static void dump_building_defs(const char *fname) {
                 def.workloc_x, def.workloc_y,
                 def.build_stages );
     }
-    fclose(fp);
 }
 
-static void dump_materials(const char *fname) {
-    FILE *fp = fopen(fname, "w");
-    
+static void dump_materials(FILE *fp) {
+    fputs("section:materials\n", fp);
     // dumping inorg and plant maps
     std::vector<df::inorganic_raw* > inorg = df::global::world->raws.inorganics;
     std::vector<df::plant_raw* > plants = df::global::world->raws.plants.all;    
@@ -262,25 +267,27 @@ static void dump_materials(const char *fname) {
 	fprintf(fp, "%d INORG %s\n", i, inorg[i]->id.c_str());
     for (int i=0; i < plants.size(); i++)
 	fprintf(fp, "%d PLANT %s\n", i, plants[i]->id.c_str());
-    fclose(fp);    
+    fprintf(fp, "%d ICE %s\n", 0x3fe, "frozen water");
 }
 
-static void dump_constructions(const char* fname) {
-    FILE *fp = fopen(fname, "w");
-   
+static void dump_constructions(FILE *fp) {
+    fputs("section:constructions\n", fp);
     for (int i=0; i < df::global::world->constructions.size() ; i ++) {
         df::construction& c = *df::global::world->constructions[i];
-        fprintf(fp, "%hd:%hd:%hd item_type: %hd item_subtype: %hd mat_type: %hd mat_index: %d orig_tile: %hd\n",
+        fprintf(fp, "%hd,%hd,%hd item_type=%hd item_subtype=%hd mat_type=%hd mat_index=%d orig_tile=%hd\n",
             c.pos.x, c.pos.y, c.pos.z, c.item_type, c.item_subtype, c.mat_type, c.mat_index, c.original_tile);
     }
-    fclose(fp);
 }
 
 
 static bool constructed_tiles[df::enums::tiletype::_last_item_of_tiletype] = { false };
 static inline void hash_and_write(int hr_width, int b_x, int t_x, int t_y, uint16_t mat, df::tiletype tt, uint32_t *hashed_row) {
-    int rti = hr_width*16*t_y +  b_x*16+t_x;
+    int rti = hr_width*16*t_y +  b_x*16 + t_x;
     hashed_row[rti] = ((mat & 0x3ff)<<10) | (tt & 0x3ff);
+}
+static inline void liquid_write(int hr_width, int b_x, int t_x, int t_y, uint32_t desn, uint32_t *liquid_row) {
+    int rti = hr_width*16*t_y +  b_x*16 + t_x;
+    liquid_row[rti] = desn;
 }
 
 void fugr_dump(void) {
@@ -332,28 +339,39 @@ void fugr_dump(void) {
     _bicache beecee;
     beecee.update(start, end);
     
-    { 
-                          
-        dump_materials("fugrdump.materials");
-        dump_buildings("fugrdump.buildings", beecee);
-        dump_constructions("fugrdump.constructions");
-        dump_building_defs("fugrdump.bdefs");
-        dump_items("fugrdump.items", beecee);
-        dump_units("fugrdump.units", beecee);
-    }
     
-    // dumping the whole map
-
-    FILE *fp = fopen("fugrdump.tiles", "w");
-    { // write page-sized header
-        int cw;
-        cw = fprintf(fp, "count_blocks: %d:%d:%d\n", 
-            x_count_block, y_count_block, z_count_block);
-        void *padding = calloc(4096-cw,1);        
-        fwrite(padding, 4096-cw, 1, fp);
-        free(padding);
+    long des_offset, map_offset, eff_offset;
+    FILE *fp = fopen("fugr.dump", "w");
+    {
+        long bindata_size = (((x_count_block * y_count_block * z_count_block *256 * 4) >>12) + 1) <<12;
+        char header[4096];
+        memset(header, 10, 4096);
+        long x = fwrite(header, 4096, 1, fp); // reserve space for the header.
+        fprintf(stderr, "wrote %ld header bytes", x);
+        
+        /* dump stuff */
+        dump_materials(fp);
+        dump_buildings(fp, beecee);
+        dump_constructions(fp);
+        dump_building_defs(fp);
+        dump_items(fp, beecee);
+        dump_units(fp, beecee);
+        
+        // page-align map data posn, calc other offsets
+        map_offset =  ((ftell(fp) >>12) + 1)<<12;
+        des_offset = map_offset + bindata_size;
+        eff_offset = des_offset + bindata_size;
+        // reserve space for map and designations
+        
+        // write header
+        fseek(fp, 0, SEEK_SET);
+        fprintf(fp, "blocks:%d:%d:%d\n", x_count_block, y_count_block, z_count_block);
+        fprintf(fp, "tiles:%ld:%ld\n", map_offset, bindata_size);
+        fprintf(fp, "designations:%ld:%ld\n", des_offset, bindata_size);
+        fprintf(fp, "effects:%ld\n", eff_offset);
+        fseek(fp, 0, eff_offset);
+        fputs("section:effects\n", fp);
     }
-    
 
     /* hashed row is a set of 16 rows of tile hashes
        ready to be blitted, dumped or whatever.
@@ -368,13 +386,16 @@ void fugr_dump(void) {
     */
     
     int hr_width = end.x - start.x;
-    uint32_t hashed_row[256*hr_width];
+    uint32_t stone_row[256*hr_width];
+    uint32_t liquid_row[256*hr_width]; /* unused|raining|salty|stagnant|magma|amount:3 */
+    
     uint16_t plant_mats[256];
     
     bool plants_clean = true;
     for(int z = start.z; z < end.z; z++)
         for(int y = start.y; y < end.y; y++) {
-            memset(hashed_row, 0xFF, 1024*hr_width);
+            memset(stone_row, 0xFF, sizeof(stone_row));
+            memset(liquid_row, 0, sizeof(liquid_row));
             for(int x = start.x; x < end.x; x++) {
                 df::map_block *b = block_index[x][y][z];
                 if (b) {
@@ -382,28 +403,48 @@ void fugr_dump(void) {
                         memset(plant_mats, 0xFF, 512);
                         plants_clean = true;
                     }
+                    /* index block-local plant materials */
                     for (int pi = 0; pi < b->plants.size(); pi ++) {
                         plants_clean = false;
                         df::coord2d pc = b->plants[pi]->pos % 16;
                         plant_mats[pc.x + 16*pc.y] = b->plants[pi]->material;
                     }
+                    /* look if we've got buildings here */
+                    _bicache_item& bi = beecee.at(x,y,z);
+                    for (int i=0; i < bi.buildings.size(); i++) {
+                        /* render building */
+                    }
+                    /* same for items and creatures */
+                    
+                    /* dump effects */
+                    for (int i=0; i< b->effects.size(); i++) {
+                        df::effect &e = *b->effects[i];
+                        fseek(fp, eff_offset, SEEK_SET);
+                        eff_offset += fprintf(fp, "%hd,%hd,%hd type=%hd idx=%d density=%hd\n",
+                            e.x, e.y, e.z, e.mat_type, e.mat_index, e.density);
+                    }
+                    
                     for (int ti = 0; ti < 256; ti++) {
                         int t_x = ti % 16;
                         int t_y = ti / 16;
                         df::coord pos( x*16 + t_x, y*16+t_y, z );
                         df::tiletype tiletype = b->tiletype[t_x][t_y];
                         
+                        { /* gather liquids; all designations in fact. */
+                            uint32_t l = b->designation[t_x][t_y].whole;
+                            liquid_write(hr_width, x, t_x, t_y, l, liquid_row);
+                        }
+                        
                         if (plant_mats[ti] != 0xffff) {
-                            hash_and_write(hr_width, x, t_x, t_y, plant_mats[ti], tiletype, hashed_row);
+                            hash_and_write(hr_width, x, t_x, t_y, plant_mats[ti], tiletype, stone_row);
                             continue;
                         }
                         if (constructed_tiles[tiletype]) {
-                            _bicache_item& bi = beecee.at(x,y,z);
                             bool done = false;
                             for (int i = 0; i < bi.constructions.size(); i++) {
                                 df::construction& suspect = *bi.constructions[i]; 
                                 if (pos == suspect.pos) {
-                                    hash_and_write(hr_width, x, t_x, t_y, suspect.mat_index, tiletype, hashed_row);
+                                    hash_and_write(hr_width, x, t_x, t_y, suspect.mat_index, tiletype, stone_row);
                                     done = true;
                                     break;
                                 }
@@ -442,25 +483,37 @@ void fugr_dump(void) {
                                         mat = e->plant_index;
                                     break;
                                 }
-        #if 0
-                                case frozen_liquid:
-                                    e = (df::block_square_event_frozen_liquidst *)mablo->block_events[i];
+        
+                                case df::enums::block_square_event_type::frozen_liquid:
+                                {
+                                    df::block_square_event_frozen_liquidst *e = (df::block_square_event_frozen_liquidst *)b->block_events[i];
+                                    if (e->tiles[t_x][t_y])
+                                        fprintf(stderr, "%hd:%hd:%hd got frozen: tile %hd  liquid_type %hhd tt=%hd\n",
+                                            pos.x, pos.y, pos.z, e->tiles[t_x][t_y], e->liquid_type[t_x][t_y].value, tiletype);
+                                
                                     break;
-                                case material_spatter:
+                                }
+        #if 0
+                                case df::enums::block_square_event_type::material_spatter:
                                     e = (df::block_square_event_material_spatterst *)mablo->block_events[i];
                                     break;
         #endif
                                 default:
                                     break;
                             }
-                        hash_and_write(hr_width, x, t_x, t_y, mat, tiletype, hashed_row);
+                        hash_and_write(hr_width, x, t_x, t_y, mat, tiletype, stone_row);
                     }
                 }
             }
             /* now dump entire hashed_row at once. */
-            fwrite(hashed_row, sizeof(uint32_t) * 256 * hr_width, 1, fp);                
+            fseek(fp, map_offset, SEEK_SET);
+            fwrite(stone_row, sizeof(stone_row), 1, fp);                
+            fseek(fp, des_offset, SEEK_SET);
+            fwrite(liquid_row, sizeof(liquid_row), 1, fp);
+            map_offset += sizeof(stone_row);
+            des_offset += sizeof(liquid_row);
         }
     fclose(fp);
-    exit(1);
+        exit(1);
 }
 
