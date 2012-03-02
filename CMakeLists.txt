@@ -1,6 +1,7 @@
+cmake_minimum_required(VERSION 2.8)
 project(PMS)
 
-cmake_minimum_required(VERSION 2.8)
+
 
 if(UNIX)
     set(CMAKE_LIBRARY_PATH /usr/lib32 /usr/lib/i386-linux-gnu)
@@ -28,4 +29,11 @@ add_definitions( -D_GNU_SOURCE=1 -D_REENTRANT )
 
 add_subdirectory(print_shader)
 add_subdirectory(dfapi)
+
+set(CPACK_GENERATOR TBZ2)
+set(CPACK_PACKAGE_NAME "PMS")
+set(CPACK_PACKAGE_VENDOR "lxnt") 
+set(CPACK_PACKAGE_VERSION "1.0.0")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "PRINT_MODE:SHADER with fgtestbed:dump")
+include(CPack)
 
