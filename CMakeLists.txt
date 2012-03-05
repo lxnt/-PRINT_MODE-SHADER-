@@ -1,9 +1,8 @@
-set(CMAKE_BUILD_TYPE  "Debug" CACHE STRING "Debug or Release" FORCE)
 cmake_minimum_required(VERSION 2.8)
 project(PMS)
 
-set(DF_VERSION "3125" CACHE STRING "DF version to build for")
-add_definitions(-DDF_VERSION=0x${DF_VERSION})
+
+
 if(UNIX)
     set(CMAKE_LIBRARY_PATH /usr/lib32 /usr/lib/i386-linux-gnu)
     set(CMAKE_CXX_FLAGS_DEBUG "-m32 -g -std=c++0x -Wall -Wno-sign-compare")
@@ -15,6 +14,12 @@ endif()
 
 include_directories(dfapi/include)
 link_directories(/usr/lib/i386-linux-gnu /usr/lib32)
+
+if(NOT DEFINED CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING 
+        "Choose the type of build, options are: Debug Release."
+    )
+endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDEBUG=8)

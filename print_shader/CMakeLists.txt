@@ -94,5 +94,5 @@ add_dependencies(graphics grab_shaders)
 find_package(GTK2 2.10 REQUIRED gtk)
 include_directories(${GTK2_INCLUDE_DIRS})
 target_link_libraries(graphics ${GTK2_LIBRARIES} ${LIBS} dfapi)
-install(TARGETS graphics LIBRARY DESTINATION lib)
+install(TARGETS graphics LIBRARY DESTINATION ${DFAPI_DATA_DESTINATION})
 
