@@ -37,8 +37,6 @@ typedef int32_t Ordinal;
 
 #endif
 
-#include "ttf_manager.hpp"
-#include "init.h"
 #include "basics.h"
 
 extern string errorlog_prefix;
@@ -474,7 +472,10 @@ void capitalize_string_first_word(string &str)
 		}
 }
 
-static void abbreviate_string_helper(string &str, int len) {
+void abbreviate_string(string &str,int32_t len)
+{
+	if(str.length()<=len)return;
+
 	if(str.length()>=2)
 		{
 		if((str[0]=='A'||str[0]=='a')&&
@@ -540,21 +541,6 @@ static void abbreviate_string_helper(string &str, int len) {
 
 	if(str.length()>len)str.resize(len);
 }
-
-
-void abbreviate_string(string &str, int32_t len)
-{
-  if (ttf_manager.ttf_active()) {
-    // We'll need to use TTF-aware text shrinking.
-    while (ttf_manager.size_text(str) > len)
-      abbreviate_string_helper(str, str.length() - 1);
-  } else if(str.length()>len){
-    // 1 letter = 1 tile.
-    abbreviate_string_helper(str, len);
-  }
-}
-
-
 
 void get_number(int32_t number,string &str)
 {

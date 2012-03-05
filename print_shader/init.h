@@ -8,10 +8,6 @@
 #include <SDL/SDL_ttf.h>
 #endif
 
-enum ttf_flag {
-  ttf_off, ttf_on, ttf_auto
-};
-
 class init_fontst
 {
 	public:
@@ -27,8 +23,7 @@ class init_fontst
 		long small_font_dispy;
 		long large_font_dispx;
 		long large_font_dispy;
-                ttf_flag use_ttf;
-                int ttf_limit;
+                bool use_ttf;
 };
 
 enum InitDisplayFlag
