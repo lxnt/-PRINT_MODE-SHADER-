@@ -281,6 +281,7 @@ static void dump_constructions(FILE *fp) {
 
 
 static bool constructed_tiles[df::enums::tiletype::_last_item_of_tiletype] = { false };
+static bool no_material_tiles[df::enums::tiletype::_last_item_of_tiletype] = { false };
 static inline void hash_and_write(int hr_width, int b_x, int t_x, int t_y, uint16_t mat, df::tiletype tt, uint32_t *hashed_row) {
     int rti = hr_width*16*t_y +  b_x*16 + t_x;
     hashed_row[rti] = ((mat & 0x3ff)<<10) | (tt & 0x3ff);
@@ -319,7 +320,25 @@ void fugr_dump(void) {
         constructed_tiles[df::enums::tiletype::tiletype::ConstructedStairU] = true,
         constructed_tiles[df::enums::tiletype::tiletype::ConstructedRamp] = true;
     }
-    
+    if (not no_material_tiles[df::enums::tiletype::tiletype::Void]) {
+        no_material_tiles[df::enums::tiletype::tiletype::Void] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::RampTop] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::Driftwood] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::OpenSpace] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::Campfire] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::Chasm] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::Ashes1] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::Ashes2] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::Ashes3] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::EeriePit] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::Fire] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::GlowingBarrier] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::GlowingFloor] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::MagmaFlow] = true;
+        no_material_tiles[df::enums::tiletype::tiletype::Waterfall] = true;
+        //no_material_tiles[df::enums::tiletype::tiletype::] = true;
+    }
+        
     if (!df::global::world || !df::global::world->world_data)
     {
         fprintf(stderr, "World data is not available.: %p\n", df::global::world);
@@ -369,7 +388,7 @@ void fugr_dump(void) {
         fprintf(fp, "tiles:%ld:%ld\n", map_offset, bindata_size);
         fprintf(fp, "designations:%ld:%ld\n", des_offset, bindata_size);
         fprintf(fp, "effects:%ld\n", eff_offset);
-        fseek(fp, 0, eff_offset);
+        fseek(fp, eff_offset, SEEK_SET);
         fputs("section:effects\n", fp);
     }
 
@@ -434,7 +453,10 @@ void fugr_dump(void) {
                             uint32_t l = b->designation[t_x][t_y].whole;
                             liquid_write(hr_width, x, t_x, t_y, l, liquid_row);
                         }
-                        
+                        if (no_material_tiles[tiletype]) {
+                            hash_and_write(hr_width, x, t_x, t_y, NOMAT, tiletype, stone_row);
+                            continue;
+                        }
                         if (plant_mats[ti] != 0xffff) {
                             hash_and_write(hr_width, x, t_x, t_y, plant_mats[ti], tiletype, stone_row);
                             continue;
@@ -513,6 +535,9 @@ void fugr_dump(void) {
             map_offset += sizeof(stone_row);
             des_offset += sizeof(liquid_row);
         }
+    fflush(fp);
+    fsync(fileno(fp));
     fclose(fp);
+    fputs("dumped, flushed and synced.\n", stderr);
 }
 
