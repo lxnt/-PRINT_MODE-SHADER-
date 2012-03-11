@@ -362,12 +362,9 @@ void fugr_dump(void) {
     long des_offset, map_offset, eff_offset;
     FILE *fp = fopen("fugr.dump", "w");
     {
+        const int header_size = 256;
         long bindata_size = (((x_count_block * y_count_block * z_count_block *256 * 4) >>12) + 1) <<12;
-        char header[4096];
-        memset(header, 10, 4096);
-        long x = fwrite(header, 4096, 1, fp); // reserve space for the header.
-        fprintf(stderr, "wrote %ld header bytes", x);
-        
+        fseek(fp, header_size, SEEK_SET); // reserve space for the header.
         /* dump stuff */
         dump_materials(fp);
         dump_buildings(fp, beecee);
@@ -375,12 +372,13 @@ void fugr_dump(void) {
         dump_building_defs(fp);
         dump_items(fp, beecee);
         dump_units(fp, beecee);
-        
-        // page-align map data posn, calc other offsets
-        map_offset =  ((ftell(fp) >>12) + 1)<<12;
-        des_offset = map_offset + bindata_size;
-        eff_offset = des_offset + bindata_size;
-        // reserve space for map and designations
+
+        // 64K-align map data posn, calc other offsets        
+#define ALIGN64K(val) ( ( ((val)>>16) + 1 ) << 16 )
+        map_offset = ALIGN64K(ftell(fp));
+        des_offset = map_offset + ALIGN64K(bindata_size);
+        eff_offset = des_offset + ALIGN64K(bindata_size);
+#undef ALIGN64K
         
         // write header
         fseek(fp, 0, SEEK_SET);
@@ -388,6 +386,8 @@ void fugr_dump(void) {
         fprintf(fp, "tiles:%ld:%ld\n", map_offset, bindata_size);
         fprintf(fp, "designations:%ld:%ld\n", des_offset, bindata_size);
         fprintf(fp, "effects:%ld\n", eff_offset);
+
+        // write effects section header
         fseek(fp, eff_offset, SEEK_SET);
         fputs("section:effects\n", fp);
     }
