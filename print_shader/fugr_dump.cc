@@ -280,6 +280,7 @@ static void dump_constructions(FILE *fp) {
 }
 
 
+static bool grass_tiles[df::enums::tiletype::_last_item_of_tiletype] = { false };
 static bool constructed_tiles[df::enums::tiletype::_last_item_of_tiletype] = { false };
 static bool no_material_tiles[df::enums::tiletype::_last_item_of_tiletype] = { false };
 static inline void hash_and_write(int hr_width, int b_x, int t_x, int t_y, uint16_t mat, df::tiletype tt, uint32_t *hashed_row) {
@@ -339,6 +340,34 @@ void fugr_dump(void) {
         //no_material_tiles[df::enums::tiletype::tiletype::] = true;
     }
         
+    if (not grass_tiles[df::enums::tiletype::tiletype::Grass1StairD]) {
+        grass_tiles[df::enums::tiletype::tiletype::Grass1StairD] = true;
+        grass_tiles[df::enums::tiletype::tiletype::Grass1StairU] = true;
+        grass_tiles[df::enums::tiletype::tiletype::Grass1StairUD] = true;
+        grass_tiles[df::enums::tiletype::tiletype::Grass2StairD] = true;
+        grass_tiles[df::enums::tiletype::tiletype::Grass2StairU] = true;
+        grass_tiles[df::enums::tiletype::tiletype::Grass2StairUD] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDarkFloor1] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDarkFloor2] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDarkFloor3] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDarkFloor4] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDarkRamp] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDeadFloor1] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDeadFloor2] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDeadFloor3] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDeadFloor4] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDeadRamp] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDryFloor1] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDryFloor2] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDryFloor3] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDryFloor4] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassDryRamp] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassLightFloor1] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassLightFloor2] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassLightFloor3] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassLightFloor4] = true;
+        grass_tiles[df::enums::tiletype::tiletype::GrassLightRamp] = true;
+    }
     if (!df::global::world || !df::global::world->world_data)
     {
         fprintf(stderr, "World data is not available.: %p\n", df::global::world);
@@ -501,7 +530,7 @@ void fugr_dump(void) {
                                 case df::block_square_event_type::grass:
                                 {
                                     df::block_square_event_grassst *e = (df::block_square_event_grassst *)b->block_events[i];
-                                    if ((e->amount[t_x][t_y] > 0) )
+                                    if ((e->amount[t_x][t_y] > 0) and grass_tiles[tiletype])
                                         mat = e->plant_index;
                                     break;
                                 }
@@ -539,5 +568,6 @@ void fugr_dump(void) {
     fsync(fileno(fp));
     fclose(fp);
     fputs("dumped, flushed and synced.\n", stderr);
+    exit(0);
 }
 
