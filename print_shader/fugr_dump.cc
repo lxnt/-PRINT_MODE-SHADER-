@@ -127,6 +127,8 @@ struct _bicache_item { // should be indices if we ever go 64bit, but...
     std::vector<df::unit *> units;
     std::vector<df::construction *> constructions;
     bool has_something;
+    
+    _bicache_item() { has_something = false; }
 };
 
 struct _bicache {
@@ -140,14 +142,14 @@ struct _bicache {
         size = { 0, 0 ,0};
         head = NULL;
     }
-    ~_bicache() { if (head) free(head); }
+    ~_bicache() { if (head) delete [] head; }
     
     void update(df::coord a, df::coord b) {
         if ( size < b-a ) {
             if (head)
-                free(head);
+                delete [] head;
             size = b - a;
-            head = static_cast<_bicache_item*> (calloc(sizeof(_bicache_item), size.x*size.y*size.z));
+            head = new _bicache_item [size.x*size.y*size.z];
         }
         for ( int i=0; i < df::global::world->items.all.size(); i++ ) {
             df::item *item  = df::global::world->items.all[i];
@@ -438,6 +440,7 @@ void fugr_dump(void) {
     uint32_t liquid_row[256*hr_width]; /* unused|raining|salty|stagnant|magma|amount:3 */
     
     uint16_t plant_mats[256];
+    memset(plant_mats, 0xFF, 512);
     
     bool plants_clean = true;
     for(int z = start.z; z < end.z; z++)
