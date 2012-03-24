@@ -487,9 +487,9 @@ struct block_row {
                     uint16_t grass, int8_t grass_amount, 
                     uint32_t designation) {
         uint32_t *p = row + (hrsize*t_y*16 + x*16 + t_x)*4;
-        *(p + 0) = ( (stone & 0x3ff) << 16 ) | (tiletype & 0x3ff);
-        *(p + 1) = ( (bmat & 0x3ff) << 16 ) | (building & 0x3ff);
-        *(p + 2) =   (grass_amount << 16 ) | ( grass & 0x3ff );
+        *(p + 0) = ( (stone & 0xffff) << 16 ) | (tiletype & 0xffff);
+        *(p + 1) = ( (bmat  & 0xffff) << 16 ) | (building & 0xffff);
+        *(p + 2) =   (grass_amount << 16 )    | (   grass & 0xffff);
         *(p + 3) = designation;
     }    
 };
@@ -555,20 +555,30 @@ void fugr_dump(void) {
         eff_offset += fwrite(esh, 1, strlen(esh), fp);
     }
 
+    uint16_t building_mats[256];
+    uint16_t building_tiles[256];
+    memset(building_mats, 0, 512);
+    memset(building_tiles, 0, 512);
+    bool buildings_clean = true;
+    
     uint16_t plant_mats[256];
     memset(plant_mats, 0, 512);
-    std::vector<df::plant_raw*>& plant_raws = df::plant_raw::get_vector();
     bool plants_clean = true;
+    std::vector<df::plant_raw*>& plant_raws = df::plant_raw::get_vector();
+    
     for(int z = start.z; z < end.z; z++)
         for(int y = start.y; y < end.y; y++) {
             for(int x = start.x; x < end.x; x++) {
-                uint16_t building_tile = 0;
-                uint16_t building_mat = 0;
                 df::map_block *b = block_index[x][y][z];
                 if (b) {
                     if (not plants_clean) {
                         memset(plant_mats, 0, 512);
                         plants_clean = true;
+                    }                    
+                    if (not buildings_clean) {
+                        memset(building_mats, 0, 512);
+                        memset(building_tiles, 0, 512);                        
+                        buildings_clean = true;
                     }
                     /* index block-local plant materials */
                     for (int pi = 0; pi < b->plants.size(); pi ++) {
@@ -584,8 +594,9 @@ void fugr_dump(void) {
                     /* look if we've got buildings here */
                     _bicache_item& bi = beecee.at(x,y,z);
                     for (int i=0; i < bi.buildings.size(); i++) {
-                        building_tile = bi.buildings[i]->getType() + 768; // trees, walls and other shit are <768.
-                        building_mat = _map_mat(bi.buildings[i]->mat_type, bi.buildings[i]->mat_index);
+                        buildings_clean = false;
+                        building_tiles[i] = bi.buildings[i]->getType() + 768; // trees, walls and other shit are <768.
+                        building_mats[i] = _map_mat(bi.buildings[i]->mat_type, bi.buildings[i]->mat_index);
                     }
                     
                     /* dump effects */
@@ -605,6 +616,8 @@ void fugr_dump(void) {
                         uint16_t tile_mat = lmc.get(b->designation[t_x][t_y], b->region_offset);
                         uint16_t grass_mat = 0;
                         int8_t   grass_amt = 0;
+                        uint16_t building_tile = 0;
+                        uint16_t building_mat = 0;
                         uint16_t worldconstr_mat = 0;
                         /* gather materials */
                         for (int i = 0; i < b->block_events.size(); i++)
@@ -671,8 +684,14 @@ void fugr_dump(void) {
                                     "pos %hd:%hd:%hd constructions in bicache: %d\n", pos.x, pos.y, pos.z,
                                        bi.constructions.size() );
                         }
-                        if (plant_mats[ti])
+                        if (plant_mats[ti]) {
                             building_mat = plant_mats[ti];
+                            building_tile = 0;
+                        }
+                        if (building_mats[ti]) {
+                            building_mat = building_mats[ti];
+                            building_tile = building_tiles[ti];;
+                        }
                         
                         row.set(x, t_x, t_y, 
                                 tile_mat, tiletype, 
