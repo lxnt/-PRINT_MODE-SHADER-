@@ -89,7 +89,7 @@ struct _bicache_item { // should be indices if we ever go 64bit, but...
     std::vector<df::construction *> constructions;
     bool has_something;
     
-    _bicache_item() { has_something = false; }
+    _bicache_item(): buildings(), items(), units(), constructions()  { has_something = false; }
 };
 
 struct _bicache {
@@ -98,9 +98,9 @@ struct _bicache {
     df::coord origin;
     df::coord size;
     
-    _bicache() {
-        origin = { 0, 0 ,0};
-        size = { 0, 0 ,0};
+    _bicache() : head() {
+        origin = { 0, 0 ,0 };
+        size = { 0, 0 ,0 };
     }
     ~_bicache() { head.clear(); }
     
@@ -109,9 +109,7 @@ struct _bicache {
             size = b - a;
         }
 
-        head.reserve(size.x*size.y*size.z);
-        for (int i=0; i<size.x*size.y*size.z; i++)
-            head[i] = _bicache_item();
+        head.assign(size.x*size.y*size.z, _bicache_item());
         
         for ( int i=0; i < df::global::world->items.all.size(); i++ ) {
             df::item *item  = df::global::world->items.all[i];
@@ -642,9 +640,10 @@ void fugr_dump(void) {
                                 case df::block_square_event_type::grass:
                                 {
                                     df::block_square_event_grassst *e = (df::block_square_event_grassst *)b->block_events[i];
-                                    grass_amt = e->amount[t_x][t_y];
-                                    grass_mat =_map_mat( plant_raws[e->plant_index]->material_defs.type_basic_mat,
-                                                       plant_raws[e->plant_index]->material_defs.idx_basic_mat );                                   
+                                    fprintf(stderr, "amt=%hhd mat=%d\n", e->amount[t_x][t_y], e->plant_index);
+                                    if ( (grass_amt = e->amount[t_x][t_y]) != 0 )
+                                        grass_mat =_map_mat( plant_raws[e->plant_index]->material_defs.type_basic_mat,
+                                                             plant_raws[e->plant_index]->material_defs.idx_basic_mat );
                                     break;
                                 }
         
